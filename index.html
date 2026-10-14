@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 4 : création de chorales et préparation des inscriptions de choristes. La connexion sans e-mail reste à développer.</small></p>
+<p><small>Version 5 : activation et connexion des choristes par identifiant (fonctionnalité à tester).</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -82,7 +82,7 @@ async function invitations(chorale){
  const telephone=field("Téléphone (facultatif)","tel",30);
  const submit=node("button","Enregistrer la fiche");submit.type="submit";const status=node("p","");status.setAttribute("role","status");form.append(submit,status);content.append(form);
  const list=document.createElement("div");content.append(node("h2","Inscriptions préparées"),list);
- async function refresh(){const {data,error}=await client.from("invitations_choristes").select("nom,identifiant,pupitre,statut").eq("chorale_id",chorale.id).order("cree_le",{ascending:false});list.replaceChildren();if(error){list.append(node("p","Chargement impossible : "+error.message));return}if(!data?.length){list.append(node("p","Aucune inscription préparée."));return}for(const row of data){const box=document.createElement("p");box.append(node("strong",row.nom),node("span"," — "+row.identifiant+" — "+(row.pupitre||"Pupitre non précisé")+" — "+row.statut));list.append(box)}}
+ async function refresh(){const {data,error}=await client.from("invitations_choristes").select("id,nom,identifiant,pupitre,statut").eq("chorale_id",chorale.id).order("cree_le",{ascending:false});list.replaceChildren();if(error){list.append(node("p","Chargement impossible : "+error.message));return}if(!data?.length){list.append(node("p","Aucune inscription préparée."));return}for(const row of data){const box=document.createElement("p");box.append(node("strong",row.nom),node("span"," — "+row.identifiant+" — "+(row.pupitre||"Pupitre non précisé")+" — "+row.statut));if(row.statut==="en_attente"){const activate=node("button","Activer le compte");activate.type="button";activate.onclick=async()=>{const pwd=prompt("Mot de passe provisoire du choriste (10 caractères minimum) :");if(pwd===null)return;if(pwd.length<10){alert("Utilisez au moins 10 caractères.");return}activate.disabled=true;const {data,error}=await client.functions.invoke("activer-choriste",{body:{invitation_id:row.id,password:pwd}});if(error||data?.error){alert("Activation impossible : "+(data?.error||error?.message||"Erreur"));activate.disabled=false;return}alert("Compte activé. Transmettez l’identifiant et le mot de passe provisoire au choriste de manière privée.");await refresh()};box.append(document.createElement("br"),activate)}list.append(box)}}
  form.onsubmit=async e=>{e.preventDefault();if(!form.reportValidity())return;submit.disabled=true;status.textContent="Enregistrement…";const {error}=await client.from("invitations_choristes").insert({chorale_id:chorale.id,nom:nom.value.trim(),identifiant:identifiant.value.trim(),pupitre:pupitre.value||null,telephone:telephone.value.trim()||null,cree_par:currentUser.id});status.textContent=error?"Erreur : "+(error.code==="23505"?"Identifiant déjà utilisé. Choisissez-en un autre.":error.message):"Fiche enregistrée. La connexion du choriste n'est pas encore disponible.";if(!error){form.reset();await refresh()}submit.disabled=false};
  await refresh();
 }
@@ -109,8 +109,8 @@ function profile(){
  const b=node("button","Se déconnecter");b.onclick=async()=>{const {error}=await client.auth.signOut();if(error){status.textContent=error.message;return}currentUser=null;show("profil")};content.append(b);return
  }
  const form=document.createElement("form");
- const labelEmail=node("label","Adresse e-mail");labelEmail.htmlFor="email";
- const email=document.createElement("input");email.id="email";email.type="email";email.autocomplete="email";email.required=true;
+ const labelEmail=node("label","Adresse e-mail ou identifiant de choriste");labelEmail.htmlFor="email";
+ const email=document.createElement("input");email.id="email";email.type="text";email.autocomplete="username";email.required=true;
  const labelPassword=node("label","Mot de passe (6 caractères minimum)");labelPassword.htmlFor="password";
  const password=document.createElement("input");password.id="password";password.type="password";password.minLength=6;password.required=true;password.autocomplete="new-password";
  const buttons=document.createElement("div");buttons.className="row";
@@ -120,7 +120,7 @@ function profile(){
  const message=node("p","");message.id="message";message.setAttribute("role","status");
  form.append(labelEmail,email,labelPassword,password,buttons,message);
  async function submit(kind){if(!form.reportValidity())return;signup.disabled=login.disabled=true;message.textContent="Veuillez patienter…";try{
- const credentials={email:email.value.trim(),password:password.value};
+ const loginName=email.value.trim().toLowerCase();if(kind==="signup"&&!loginName.includes("@"))throw Error("Pour une inscription personnelle, une adresse e-mail est nécessaire. Les choristes sans e-mail sont inscrits par leur responsable.");const credentials={email:loginName.includes("@")?loginName:loginName+"@choristes.invalid",password:password.value};
  const {data,error}=kind==="signup"?await client.auth.signUp(credentials):await client.auth.signInWithPassword(credentials);
  if(error)throw error;
  password.value="";

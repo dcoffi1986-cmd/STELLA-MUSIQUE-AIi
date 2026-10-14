@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 2 : inscription et connexion disponibles après configuration sécurisée de Supabase. Discussions et studio IA restent des démonstrations.</small></p>
+<p><small>Version 3 : connexion, profils et création de chorales. Discussions, bibliothèque et studio IA restent à développer.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -34,14 +34,63 @@ function node(tag,text){const el=document.createElement(tag);el.textContent=text
 function show(page){
  content.replaceChildren();
  if(page==="profil"){profile();return}
+ if(page==="chorales"){chorales();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
 }
+
+async function chorales(){
+ content.append(node("h2","Mes chorales"));
+ if(!ready||!currentUser){content.append(node("p","Connectez-vous dans Profil pour créer et consulter vos chorales."));const b=node("button","Se connecter");b.onclick=()=>show("profil");content.append(b);return}
+ const status=node("p","Chargement des chorales…");status.setAttribute("role","status");
+ const list=document.createElement("div");content.append(list);
+ const form=document.createElement("form");
+ const label=node("label","Nom de la nouvelle chorale");const name=document.createElement("input");name.required=true;name.maxLength=120;
+ const descriptionLabel=node("label","Description (facultative)");const description=document.createElement("input");description.maxLength=500;
+ const pubLabel=node("label","Chorale visible publiquement");const pub=document.createElement("input");pub.type="checkbox";pub.style.width="auto";
+ const submit=node("button","Créer ma chorale");submit.type="submit";
+ form.append(label,name,descriptionLabel,description,pubLabel,pub,submit,status);
+ content.append(node("h2","Créer une chorale"),form);
+ async function refresh(){
+ const {data,error}=await client.from("chorales").select("id,nom,description,proprietaire_id,est_publique").order("cree_le",{ascending:false});
+ list.replaceChildren();
+ if(error){status.textContent="Lecture impossible : "+error.message;return}
+ const mine=(data||[]).filter(x=>x.proprietaire_id===currentUser.id);
+ list.append(node("p",mine.length?mine.length+" chorale(s) créée(s) par vous.":"Vous n'avez pas encore créé de chorale."));
+ mine.forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Aucune description"),node("small",x.est_publique?"Publique":"Privée"));list.append(item)});
+ status.textContent="";
+ }
+ form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;status.textContent="Création…";
+ const {error}=await client.from("chorales").insert({nom:name.value.trim(),description:description.value.trim(),est_publique:pub.checked,proprietaire_id:currentUser.id});
+ if(error)status.textContent="Création impossible : "+error.message;
+ else {name.value="";description.value="";pub.checked=false;await refresh();status.textContent="Chorale créée avec succès."}
+ submit.disabled=false;
+ };
+ await refresh();
+}
+
 function profile(){
  content.append(node("h2","Mon profil"));
  if(!ready){content.append(node("p","L'inscription sera activée après la configuration de Supabase."),node("p","La page est prête. Aucun mot de passe n'est collecté tant que la connexion n'est pas configurée."));return}
- if(currentUser){content.append(node("p","Connecté : "+currentUser.email));const b=node("button","Se déconnecter");b.onclick=async()=>{await client.auth.signOut();currentUser=null;show("profil")};content.append(b);return}
+ if(currentUser){
+ content.append(node("p","Connecté : "+currentUser.email));
+ const status=node("p","Chargement du profil…");status.setAttribute("role","status");
+ const form=document.createElement("form");
+ const nameLabel=node("label","Nom affiché");const name=document.createElement("input");name.required=true;name.maxLength=100;
+ const phoneLabel=node("label","Téléphone (facultatif)");const phone=document.createElement("input");phone.type="tel";phone.maxLength=30;
+ const save=node("button","Enregistrer mon profil");save.type="submit";
+ form.append(nameLabel,name,phoneLabel,phone,save,status);content.append(form);
+ client.from("profils").select("nom,telephone").eq("id",currentUser.id).maybeSingle().then(({data,error})=>{
+ if(error){status.textContent="Chargement impossible : "+error.message;return}
+ name.value=data?.nom||"";phone.value=data?.telephone||"";status.textContent=data?"Profil chargé.":"Complétez votre profil.";
+ });
+ form.onsubmit=async e=>{e.preventDefault();save.disabled=true;status.textContent="Enregistrement…";
+ const {error}=await client.from("profils").upsert({id:currentUser.id,nom:name.value.trim(),telephone:phone.value.trim()},{onConflict:"id"});
+ status.textContent=error?"Erreur : "+error.message:"Profil enregistré.";save.disabled=false;
+ };
+ const b=node("button","Se déconnecter");b.onclick=async()=>{const {error}=await client.auth.signOut();if(error){status.textContent=error.message;return}currentUser=null;show("profil")};content.append(b);return
+ }
  const form=document.createElement("form");
  const labelEmail=node("label","Adresse e-mail");labelEmail.htmlFor="email";
  const email=document.createElement("input");email.id="email";email.type="email";email.autocomplete="email";email.required=true;

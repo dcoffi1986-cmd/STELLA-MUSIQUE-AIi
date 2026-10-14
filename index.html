@@ -17,8 +17,8 @@
 "use strict";
 // Remplir uniquement avec l'URL du projet et la clé PUBLIQUE (anon/publishable).
 // Ne jamais placer de clé service_role ou secrète dans ce fichier public.
-const SUPABASE_URL = "";
-const SUPABASE_PUBLISHABLE_KEY = "";
+const SUPABASE_URL = "https://kraxukusqczuiefktiah.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_sVySjOQBEsX3jH28JstjRQ_OfcUYnSC";
 const ready = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && window.supabase);
 const client = ready ? window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY) : null;
 let currentUser=null;

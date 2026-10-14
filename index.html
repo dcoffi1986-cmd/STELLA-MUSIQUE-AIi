@@ -1,1 +1,69 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>STELLA MUSIC AI</title><style>body{margin:0;background:#09172d;color:#fff;font:16px system-ui}header{background:#112544;padding:28px 20px;text-align:center;border-bottom:2px solid #d5a943}h1{color:#f1c76c;margin:0}p{line-height:1.5}.wrap{padding:20px;max-width:650px;margin:auto}.tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}button{background:#173458;color:#fff;border:1px solid #d5a943;border-radius:14px;padding:16px;font-size:16px}button:focus{background:#ad8538;color:#081428}.card{background:#142946;border-radius:16px;padding:20px;margin-top:20px}h2{color:#f1c76c}input{box-sizing:border-box;width:100%;padding:14px;border-radius:10px;font-size:17px}small{color:#cbd5e1}</style></head><body><header><h1>♫ STELLA MUSIC AI</h1><p>La musique nous unit, l'intelligence nous accompagne.</p></header><div class="wrap"><div class="tabs"><button onclick="show('accueil')">🏠 Accueil</button><button onclick="show('discussions')">💬 Discussions</button><button onclick="show('chorales')">👥 Chorales</button><button onclick="show('bibliotheque')">📚 Bibliothèque</button><button onclick="show('studio')">🎼 Studio IA</button><button onclick="show('profil')">👤 Profil</button></div><section id="content" class="card"></section><p><small>Prototype de démonstration : aucune connexion, messagerie ou génération musicale active.</small></p></div><script>const pages={accueil:['Bienvenue','Découvrez les espaces de votre future application musicale.'],discussions:['Discussions','La messagerie entre choristes sera disponible dans une prochaine version.'],chorales:['Mes chorales','Créez bientôt des groupes privés pour vos répétitions et partitions.'],bibliotheque:['Bibliothèque musicale','<input placeholder="Rechercher un chant (démonstration)" aria-label="Rechercher un chant"><p>Les chants seront ajoutés après la connexion à la base de données.</p>'],studio:['Studio musical IA','La composition de chants et de psaumes sera intégrée progressivement.'],profil:['Mon profil','Connexion par numéro de téléphone prévue pour la prochaine étape.']};function show(k){let p=pages[k];document.getElementById('content').innerHTML='<h2>'+p[0]+'</h2><p>'+p[1]+'</p>'}show('accueil')</script></body></html>
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STELLA MUSIC AI</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#fff;background:#09172d}*{box-sizing:border-box}body{margin:0}header{background:#112544;border-bottom:2px solid #d5a943;text-align:center;padding:32px 18px}h1,h2{color:#f1c76c}h1{font-size:clamp(26px,6vw,40px)}p{line-height:1.55}.wrap{max-width:750px;margin:auto;padding:20px}.tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}button{cursor:pointer;background:#173458;color:white;border:1px solid #d5a943;border-radius:14px;padding:15px;font-size:16px}button:hover,button:focus{background:#35577e}.card{background:#142946;border-radius:18px;padding:22px;margin:22px 0}input{width:100%;padding:13px;margin:7px 0 14px;border-radius:10px;border:1px solid #a8b6cb;background:#fff;color:#142946;font-size:16px}label{display:block}small,.muted{color:#cbd5e1}form button{width:100%;margin:6px 0}#message{min-height:1.5em}a{color:#f1c76c}.hidden{display:none}.row{display:flex;gap:8px}.row button{flex:1}button:disabled{opacity:.6;cursor:wait}
+</style></head><body>
+<header><h1>♫ STELLA MUSIC AI</h1><p>La musique nous unit, l'intelligence nous accompagne.</p></header>
+<main class="wrap"><nav class="tabs" aria-label="Navigation">
+<button data-page="accueil">🏠 Accueil</button><button data-page="discussions">💬 Discussions</button>
+<button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
+<button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
+<section id="content" class="card" aria-live="polite"></section>
+<p><small>Version 2 : inscription et connexion disponibles après configuration sécurisée de Supabase. Discussions et studio IA restent des démonstrations.</small></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+"use strict";
+// Remplir uniquement avec l'URL du projet et la clé PUBLIQUE (anon/publishable).
+// Ne jamais placer de clé service_role ou secrète dans ce fichier public.
+const SUPABASE_URL = "";
+const SUPABASE_PUBLISHABLE_KEY = "";
+const ready = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && window.supabase);
+const client = ready ? window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY) : null;
+let currentUser=null;
+const content=document.getElementById("content");
+const pages={
+ accueil:["Bienvenue","Découvrez les espaces de votre application musicale."],
+ discussions:["Discussions","La messagerie entre choristes arrivera dans une prochaine version."],
+ chorales:["Mes chorales","La gestion des chorales sera ajoutée prochainement."],
+ bibliotheque:["Bibliothèque musicale","Les partitions et chants seront disponibles prochainement."],
+ studio:["Studio musical IA","Les outils de composition assistée par IA seront intégrés progressivement."]
+};
+function node(tag,text){const el=document.createElement(tag);el.textContent=text;return el}
+function show(page){
+ content.replaceChildren();
+ if(page==="profil"){profile();return}
+ const data=pages[page]||pages.accueil;
+ content.append(node("h2",data[0]),node("p",data[1]));
+ if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
+}
+function profile(){
+ content.append(node("h2","Mon profil"));
+ if(!ready){content.append(node("p","L'inscription sera activée après la configuration de Supabase."),node("p","La page est prête. Aucun mot de passe n'est collecté tant que la connexion n'est pas configurée."));return}
+ if(currentUser){content.append(node("p","Connecté : "+currentUser.email));const b=node("button","Se déconnecter");b.onclick=async()=>{await client.auth.signOut();currentUser=null;show("profil")};content.append(b);return}
+ const form=document.createElement("form");
+ const labelEmail=node("label","Adresse e-mail");labelEmail.htmlFor="email";
+ const email=document.createElement("input");email.id="email";email.type="email";email.autocomplete="email";email.required=true;
+ const labelPassword=node("label","Mot de passe (6 caractères minimum)");labelPassword.htmlFor="password";
+ const password=document.createElement("input");password.id="password";password.type="password";password.minLength=6;password.required=true;password.autocomplete="new-password";
+ const buttons=document.createElement("div");buttons.className="row";
+ const signup=node("button","S'inscrire");signup.type="button";
+ const login=node("button","Se connecter");login.type="submit";
+ buttons.append(signup,login);
+ const message=node("p","");message.id="message";message.setAttribute("role","status");
+ form.append(labelEmail,email,labelPassword,password,buttons,message);
+ async function submit(kind){if(!form.reportValidity())return;signup.disabled=login.disabled=true;message.textContent="Veuillez patienter…";try{
+ const credentials={email:email.value.trim(),password:password.value};
+ const {data,error}=kind==="signup"?await client.auth.signUp(credentials):await client.auth.signInWithPassword(credentials);
+ if(error)throw error;
+ password.value="";
+ if(data.session){currentUser=data.user;show("profil")}else message.textContent="Inscription reçue. Vérifiez votre e-mail si une confirmation est demandée.";
+ }catch(e){message.textContent="Opération impossible : "+(e.message||"Erreur inconnue")}finally{signup.disabled=login.disabled=false}}
+ signup.onclick=()=>submit("signup");form.onsubmit=e=>{e.preventDefault();submit("login")};
+ content.append(form);
+}
+document.querySelectorAll("[data-page]").forEach(b=>b.addEventListener("click",()=>show(b.dataset.page)));
+if(client){client.auth.getUser().then(({data})=>{currentUser=data.user;show("accueil")}).catch(()=>show("accueil"));client.auth.onAuthStateChange((_event,session)=>{currentUser=session?.user||null})}
+show("accueil");
+</script></body></html>

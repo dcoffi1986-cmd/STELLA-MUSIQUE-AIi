@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 5 : activation et connexion des choristes par identifiant (fonctionnalité à tester).</small></p>
+<p><small>Version 6 : discussions par chorale et comptes choristes (activation à tester).</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -35,9 +35,41 @@ function show(page){
  content.replaceChildren();
  if(page==="profil"){profile();return}
  if(page==="chorales"){chorales();return}
+ if(page==="discussions"){discussions();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
+}
+
+
+async function discussions(){
+ content.append(node("h2","Discussions de chorale"));
+ if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux discussions."));const b=node("button","Se connecter");b.onclick=()=>show("profil");content.append(b);return}
+ const info=node("p","Recherche de vos chorales…");info.setAttribute("role","status");content.append(info);
+ const {data:members,error:membershipError}=await client.from("membres").select("chorale_id").eq("utilisateur_id",currentUser.id);
+ if(membershipError){info.textContent="Impossible de lire les adhésions : "+membershipError.message;return}
+ const {data:owned,error:ownerError}=await client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id);
+ if(ownerError){info.textContent="Impossible de lire les chorales : "+ownerError.message;return}
+ const ids=[...new Set([...(members||[]).map(x=>x.chorale_id),...(owned||[]).map(x=>x.id)])];
+ if(!ids.length){info.textContent="Vous ne faites partie d’aucune chorale. Créez une chorale dans l’onglet Chorales.";return}
+ const {data:choirs,error:choirError}=await client.from("chorales").select("id,nom").in("id",ids);
+ if(choirError){info.textContent="Chargement impossible : "+choirError.message;return}
+ info.textContent="Choisissez une chorale pour voir ses messages.";
+ const select=document.createElement("select");select.style.cssText="width:100%;padding:12px;margin:10px 0;color:#142946";
+ for(const ch of (choirs||[])){const opt=document.createElement("option");opt.value=ch.id;opt.textContent=ch.nom;select.append(opt)}
+ content.append(select);
+ const messages=document.createElement("div");messages.setAttribute("aria-live","polite");content.append(messages);
+ const form=document.createElement("form");const label=node("label","Votre message");const input=document.createElement("input");input.maxLength=1500;input.required=true;input.placeholder="Écrire un message à votre chorale";
+ const send=node("button","Envoyer le message");send.type="submit";const status=node("p","");status.setAttribute("role","status");
+ const reload=node("button","Actualiser les messages");reload.type="button";
+ form.append(label,input,send,status);content.append(form,reload);
+ async function refresh(){messages.replaceChildren();const {data,error}=await client.from("discussions").select("contenu,auteur_id,cree_le").eq("chorale_id",select.value).order("cree_le",{ascending:true}).limit(100);
+ if(error){messages.append(node("p","Lecture refusée : "+error.message+". Vérifiez votre adhésion à cette chorale."));return}
+ if(!data?.length){messages.append(node("p","Aucun message pour le moment."));return}
+ for(const m of data){const item=document.createElement("p");item.style.cssText="padding:12px;border-bottom:1px solid #35577e;overflow-wrap:anywhere";const author=m.auteur_id===currentUser.id?"Vous":"Choriste";item.append(node("strong",author+" · "+new Date(m.cree_le).toLocaleString("fr-FR")),document.createElement("br"),node("span",m.contenu));messages.append(item)}}
+ select.onchange=refresh;reload.onclick=refresh;
+ form.onsubmit=async e=>{e.preventDefault();send.disabled=true;status.textContent="Envoi…";const {error}=await client.from("discussions").insert({chorale_id:select.value,auteur_id:currentUser.id,contenu:input.value.trim()});if(error)status.textContent="Envoi impossible : "+error.message;else{input.value="";status.textContent="Message envoyé.";await refresh()}send.disabled=false};
+ await refresh();
 }
 
 async function chorales(){
@@ -72,7 +104,7 @@ async function chorales(){
 
 
 async function invitations(chorale){
- content.replaceChildren(node("h2","Choristes — "+chorale.nom),node("p","Préparez les fiches des choristes. Les comptes de connexion sans e-mail ne sont pas encore activés."));
+ content.replaceChildren(node("h2","Choristes — "+chorale.nom),node("p","Préparez les fiches des choristes. Les comptes sont activables par le propriétaire. La connexion doit encore être testée."));
  const back=node("button","← Retour aux chorales");back.onclick=()=>show("chorales");content.append(back);
  const form=document.createElement("form");
  function field(label,type,max){const l=node("label",label),i=document.createElement("input");i.type=type;i.maxLength=max;i.required=label.includes("*");form.append(l,i);return i}

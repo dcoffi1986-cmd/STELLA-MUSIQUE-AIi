@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 3 : connexion, profils et création de chorales. Discussions, bibliothèque et studio IA restent à développer.</small></p>
+<p><small>Version 4 : création de chorales et préparation des inscriptions de choristes. La connexion sans e-mail reste à développer.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -58,7 +58,7 @@ async function chorales(){
  if(error){status.textContent="Lecture impossible : "+error.message;return}
  const mine=(data||[]).filter(x=>x.proprietaire_id===currentUser.id);
  list.append(node("p",mine.length?mine.length+" chorale(s) créée(s) par vous.":"Vous n'avez pas encore créé de chorale."));
- mine.forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Aucune description"),node("small",x.est_publique?"Publique":"Privée"));list.append(item)});
+ mine.forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Aucune description"),node("small",x.est_publique?"Publique":"Privée"));const manage=node("button","Préparer les inscriptions");manage.type="button";manage.onclick=()=>invitations(x);item.append(document.createElement("br"),manage);list.append(item)});
  status.textContent="";
  }
  form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;status.textContent="Création…";
@@ -67,6 +67,23 @@ async function chorales(){
  else {name.value="";description.value="";pub.checked=false;await refresh();status.textContent="Chorale créée avec succès."}
  submit.disabled=false;
  };
+ await refresh();
+}
+
+
+async function invitations(chorale){
+ content.replaceChildren(node("h2","Choristes — "+chorale.nom),node("p","Préparez les fiches des choristes. Les comptes de connexion sans e-mail ne sont pas encore activés."));
+ const back=node("button","← Retour aux chorales");back.onclick=()=>show("chorales");content.append(back);
+ const form=document.createElement("form");
+ function field(label,type,max){const l=node("label",label),i=document.createElement("input");i.type=type;i.maxLength=max;i.required=label.includes("*");form.append(l,i);return i}
+ const nom=field("Nom et prénom *","text",150);
+ const identifiant=field("Identifiant souhaité * (4 à 40 caractères : lettres minuscules, chiffres, point, tiret)","text",40);identifiant.pattern="[a-z0-9._-]{4,40}";identifiant.autocapitalize="off";
+ const l=node("label","Pupitre");const pupitre=document.createElement("select");pupitre.style.cssText="width:100%;padding:13px;margin:7px 0 14px;border-radius:10px";for(const [value,title] of [["","Non précisé"],["soprano","Soprano"],["alto","Alto"],["tenor","Ténor"],["basse","Basse"],["autre","Autre"]]){const o=document.createElement("option");o.value=value;o.textContent=title;pupitre.append(o)}form.append(l,pupitre);
+ const telephone=field("Téléphone (facultatif)","tel",30);
+ const submit=node("button","Enregistrer la fiche");submit.type="submit";const status=node("p","");status.setAttribute("role","status");form.append(submit,status);content.append(form);
+ const list=document.createElement("div");content.append(node("h2","Inscriptions préparées"),list);
+ async function refresh(){const {data,error}=await client.from("invitations_choristes").select("nom,identifiant,pupitre,statut").eq("chorale_id",chorale.id).order("cree_le",{ascending:false});list.replaceChildren();if(error){list.append(node("p","Chargement impossible : "+error.message));return}if(!data?.length){list.append(node("p","Aucune inscription préparée."));return}for(const row of data){const box=document.createElement("p");box.append(node("strong",row.nom),node("span"," — "+row.identifiant+" — "+(row.pupitre||"Pupitre non précisé")+" — "+row.statut));list.append(box)}}
+ form.onsubmit=async e=>{e.preventDefault();if(!form.reportValidity())return;submit.disabled=true;status.textContent="Enregistrement…";const {error}=await client.from("invitations_choristes").insert({chorale_id:chorale.id,nom:nom.value.trim(),identifiant:identifiant.value.trim(),pupitre:pupitre.value||null,telephone:telephone.value.trim()||null,cree_par:currentUser.id});status.textContent=error?"Erreur : "+(error.code==="23505"?"Identifiant déjà utilisé. Choisissez-en un autre.":error.message):"Fiche enregistrée. La connexion du choriste n'est pas encore disponible.";if(!error){form.reset();await refresh()}submit.disabled=false};
  await refresh();
 }
 

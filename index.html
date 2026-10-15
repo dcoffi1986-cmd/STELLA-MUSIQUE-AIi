@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 8 : discussions générales et par pupitre.</small></p>
+<p><small>Version 9 : chorales administrées et chorales rejointes.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -96,12 +96,21 @@ async function chorales(){
  form.append(label,name,descriptionLabel,description,pubLabel,pub,submit,status);
  content.append(node("h2","Créer une chorale"),form);
  async function refresh(){
- const {data,error}=await client.from("chorales").select("id,nom,description,proprietaire_id,est_publique").order("cree_le",{ascending:false});
+ status.textContent="Chargement des chorales…";
+ const {data:membership,error:membershipError}=await client.from("membres").select("chorale_id,role").eq("utilisateur_id",currentUser.id);
+ if(membershipError){status.textContent="Lecture des adhésions impossible : "+membershipError.message;return}
+ const {data:owned,error:ownedError}=await client.from("chorales").select("id,nom,description,proprietaire_id,est_publique").eq("proprietaire_id",currentUser.id);
+ if(ownedError){status.textContent="Lecture impossible : "+ownedError.message;return}
+ const joinedIds=[...new Set((membership||[]).map(m=>m.chorale_id))].filter(id=>!(owned||[]).some(c=>c.id===id));
+ let joined=[];
+ if(joinedIds.length){const {data,error}=await client.from("chorales").select("id,nom,description,proprietaire_id,est_publique").in("id",joinedIds);if(error){status.textContent="Lecture des chorales rejointes impossible : "+error.message;return}joined=data||[]}
  list.replaceChildren();
- if(error){status.textContent="Lecture impossible : "+error.message;return}
- const mine=(data||[]).filter(x=>x.proprietaire_id===currentUser.id);
- list.append(node("p",mine.length?mine.length+" chorale(s) créée(s) par vous.":"Vous n'avez pas encore créé de chorale."));
- mine.forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Aucune description"),node("small",x.est_publique?"Publique":"Privée"));const manage=node("button","Préparer les inscriptions");manage.type="button";manage.onclick=()=>invitations(x);item.append(document.createElement("br"),manage);list.append(item)});
+ list.append(node("h2","👑 Mes chorales administrées"));
+ list.append(node("p",owned?.length?owned.length+" chorale(s) administrée(s).":"Vous n’administrez aucune chorale."));
+ (owned||[]).forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Aucune description"),node("small",x.est_publique?"Publique":"Privée"));const manage=node("button","Préparer les inscriptions");manage.type="button";manage.onclick=()=>invitations(x);item.append(document.createElement("br"),manage);list.append(item)});
+ list.append(node("h2","👥 Mes chorales rejointes"));
+ list.append(node("p",joined.length?joined.length+" chorale(s) rejointe(s).":"Vous n’avez pas encore rejoint de chorale."));
+ joined.forEach(x=>{const item=document.createElement("div");item.className="card";item.append(node("h2",x.nom),node("p",x.description||"Membre de cette chorale."));const go=node("button","Accéder aux discussions");go.type="button";go.onclick=()=>show("discussions");item.append(go);list.append(item)});
  status.textContent="";
  }
  form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;status.textContent="Création…";

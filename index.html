@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 22 : correction, renommage et désactivation des postes.</small></p>
+<p><small>Version 23 : suivi individuel des cotisations mensuelles.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -119,12 +119,13 @@ async function financesChorale(){
  let loaded; try { loaded=await Promise.race([Promise.all([
  client.from("membres").select("utilisateur_id").eq("chorale_id",choir),
  client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
- client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire,poste_depense_id").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
+ client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire,poste_depense_id,mois_cotisation").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
  client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir),
- client.from("stella_postes_depense").select("id,nom,nature,actif").eq("chorale_id",choir).order("nom")
+ client.from("stella_postes_depense").select("id,nom,nature,actif").eq("chorale_id",choir).order("nom"),
+ client.from("stella_parametres_cotisations").select("montant_mensuel,mois_debut").eq("chorale_id",choir).maybeSingle()
  ]),new Promise((_,reject)=>setTimeout(()=>reject(Error("Délai dépassé")),12000))]); } catch(e) {summary.replaceChildren(node("p","Erreur de chargement : "+e.message));const retry=node("button","Réessayer");retry.onclick=load;summary.append(retry);return;}
- const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr},{data:categories,error:categoryErr}]=loaded;
- if(peopleErr||nameErr||entryErr||treasErr||categoryErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr||categoryErr).message));return}
+ const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr},{data:categories,error:categoryErr},{data:duesConfig,error:duesConfigErr}]=loaded;
+ if(peopleErr||nameErr||entryErr||treasErr||categoryErr||duesConfigErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr||categoryErr||duesConfigErr).message));return}
  members=(people||[]).map(p=>p.utilisateur_id);memberNames=new Map((names||[]).map(n=>[n.utilisateur_id,n.nom]));transactions=entries||[];postes=categories||[];
  if(isOwner){
  treasBox.append(node("h3","🔐 Désigner un trésorier"));
@@ -177,19 +178,20 @@ async function financesChorale(){
  const emptyPoste=document.createElement("option");emptyPoste.value="";emptyPoste.textContent="Choisir un poste";posteSelect.append(emptyPoste);
  function updatePosteOptions(){posteSelect.replaceChildren();const opt0=document.createElement("option");opt0.value="";opt0.textContent="Choisir un poste";posteSelect.append(opt0);for(const p of postes.filter(p=>p.actif&&p.nature===(kind.value==="depense"?"depense":"recette"))){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}}
  form.append(posteLabel,posteSelect);
+ const duesMonthLabel=node("label","Mois concerné par la cotisation"),duesMonth=document.createElement("input");duesMonth.type="month";duesMonth.value=today().slice(0,7);form.append(duesMonthLabel,duesMonth);
  const title=field("Libellé","text");title.maxLength=200;
  const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
  const date=field("Date de l'opération","date");date.value=today();
  const noteLabel=node("label","Commentaire (facultatif)"),note=document.createElement("textarea");note.maxLength=1000;note.rows=2;note.style.cssText="width:100%;padding:12px";form.append(noteLabel,note);
  const save=node("button","Enregistrer dans la caisse");save.type="submit";const feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
- function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation";posteLabel.hidden=posteSelect.hidden=false;posteLabel.textContent=kind.value==="depense"?"Poste de dépense":"Poste de recette (facultatif)";posteSelect.required=kind.value==="depense";updatePosteOptions()}
+ function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation";duesMonthLabel.hidden=duesMonth.hidden=kind.value!=="cotisation";duesMonth.required=kind.value==="cotisation";posteLabel.hidden=posteSelect.hidden=false;posteLabel.textContent=kind.value==="depense"?"Poste de dépense":"Poste de recette (facultatif)";posteSelect.required=kind.value==="depense";updatePosteOptions()}
  kind.onchange=togglePerson;togglePerson();
  form.onsubmit=async e=>{e.preventDefault();const val=Number(amount.value);if(!Number.isSafeInteger(val)||val<1||val>1000000000){feedback.textContent="Montant invalide.";return}
  if(kind.value==="cotisation"&&!person.value){feedback.textContent="Choisis un choriste.";return}
  if(kind.value==="depense"&&!posteSelect.value){feedback.textContent="Crée ou choisis un poste de dépense.";return}
  if(!confirm("Confirmer cette opération de "+money(val)+" ?"))return;
  save.disabled=true;feedback.textContent="Enregistrement…";
- const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),poste_depense_id:posteSelect.value||null,cree_par:currentUser.id});
+ const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),poste_depense_id:posteSelect.value||null,mois_cotisation:kind.value==="cotisation"?duesMonth.value+"-01":null,cree_par:currentUser.id});
  if(error){feedback.textContent="Erreur : "+error.message;save.disabled=false;return}
  await load();save.disabled=false;entryBox.prepend(node("p","✅ Opération enregistrée."));
  };entryBox.append(form);
@@ -198,6 +200,34 @@ async function financesChorale(){
  const dues=transactions.filter(t=>t.type==="cotisation").reduce((a,t)=>a+Number(t.montant),0);
  summary.replaceChildren(node("h2","📊 Situation de la caisse"),node("p","💵 Total des recettes : "+money(incomes)),node("p","🎼 Cotisations encaissées : "+money(dues)),node("p","💸 Dépenses : "+money(expenses)),node("h3","Solde calculé : "+money(incomes-expenses)));
  summary.append(node("p","Solde calculé à partir des opérations enregistrées. Il ne remplace pas un rapprochement avec les espèces ou le compte bancaire."));
+ const duesBox=document.createElement("section");duesBox.append(node("h3","📋 Suivi individuel des cotisations"));
+ const cfgAmount=Number(duesConfig?.montant_mensuel||0),cfgStart=(duesConfig?.mois_debut||today().slice(0,7)+"-01").slice(0,7);
+ duesBox.append(node("p","Montant mensuel : "+money(cfgAmount)+" • Début du suivi : "+cfgStart));
+ if(isOwner){
+ const settings=document.createElement("form"),mLabel=node("label","Cotisation mensuelle par choriste (FCFA)"),mInput=document.createElement("input"),startLabel=node("label","Premier mois du suivi"),startInput=document.createElement("input"),setBtn=node("button","Enregistrer les paramètres");
+ mInput.type="number";mInput.min="0";mInput.step="1";mInput.required=true;mInput.value=String(cfgAmount);startInput.type="month";startInput.required=true;startInput.value=cfgStart;setBtn.type="submit";
+ settings.append(mLabel,mInput,startLabel,startInput,setBtn);duesBox.append(settings);
+ settings.onsubmit=async e=>{e.preventDefault();const v=Number(mInput.value);if(!Number.isSafeInteger(v)||v<0||v>1000000000){alert("Montant invalide");return}
+ if(!confirm("Enregistrer les paramètres de cotisation ?"))return;
+ setBtn.disabled=true;const {error}=await client.from("stella_parametres_cotisations").upsert({chorale_id:choir,montant_mensuel:v,mois_debut:startInput.value+"-01"},{onConflict:"chorale_id"});
+ if(error){alert("Erreur : "+error.message);setBtn.disabled=false;return}await load()};
+ }
+ const reportMonth=document.createElement("input");reportMonth.type="month";reportMonth.value=today().slice(0,7);duesBox.append(node("label","Afficher les cotisations jusqu'au mois"),reportMonth);
+ const duesResult=document.createElement("div");duesBox.append(duesResult);
+ function renderDues(){duesResult.replaceChildren();if(!cfgAmount){duesResult.append(node("p","Le responsable doit d'abord définir le montant mensuel."));return}
+ const end=reportMonth.value;if(end<cfgStart){duesResult.append(node("p","Choisis un mois à partir du début du suivi."));return}
+ const months=[];let [y,m]=cfgStart.split("-").map(Number);while(y*12+m<=Number(end.slice(0,4))*12+Number(end.slice(5,7))&&months.length<120){months.push(y+"-"+String(m).padStart(2,"0"));m++;if(m===13){m=1;y++}}
+ const old=transactions.filter(t=>t.type==="cotisation"&&!t.mois_cotisation);
+ if(old.length)duesResult.append(node("p","⚠️ "+old.length+" ancienne(s) cotisation(s) sans mois attribué : elles ne sont pas comptées comme paiement mensuel. Ne les ressaisis pas."));
+ const table=document.createElement("div");table.style.cssText="overflow-x:auto";const t=document.createElement("table");t.style.cssText="width:100%;border-collapse:collapse";
+ const head=document.createElement("tr");for(const h of ["Choriste","Mois payés","Mois impayés","Reste à payer"]){const th=node("th",h);th.style.cssText="padding:8px;border:1px solid #60738c";head.append(th)}t.append(head);
+ for(const uid of members){const paid=months.filter(mo=>transactions.some(tr=>tr.type==="cotisation"&&tr.membre_id===uid&&tr.mois_cotisation?.slice(0,7)===mo&&Number(tr.montant)>=cfgAmount));
+ const unpaid=months.filter(mo=>!paid.includes(mo));const row=document.createElement("tr");
+ for(const v of [memberNames.get(uid)||"Choriste",paid.join(", ")||"Aucun",unpaid.join(", ")||"Aucun",money(unpaid.length*cfgAmount)]){const td=node("td",v);td.style.cssText="padding:8px;border:1px solid #60738c;vertical-align:top";row.append(td)}t.append(row)}
+ table.append(t);duesResult.append(table);
+ duesResult.append(node("p","Un mois est marqué payé uniquement si les cotisations affectées à ce mois atteignent le montant prévu. Les versements partiels restent à vérifier."));
+ }
+ reportMonth.onchange=renderDues;renderDues();summary.append(duesBox);
  const monthKey=today().slice(0,7),monthly=transactions.filter(t=>t.date_operation.slice(0,7)===monthKey);
  const rMonth=monthly.filter(t=>t.type!=="depense").reduce((a,t)=>a+Number(t.montant),0),dMonth=monthly.filter(t=>t.type==="depense").reduce((a,t)=>a+Number(t.montant),0);
  summary.append(node("h3","📅 Rapport financier du mois"),node("p","Mois : "+monthKey),node("p","Recettes du mois : "+money(rMonth)),node("p","Dépenses du mois : "+money(dMonth)),node("p","Résultat du mois : "+money(rMonth-dMonth)));
@@ -213,6 +243,7 @@ async function financesChorale(){
  for(const t of arr){const row=document.createElement("div");row.style.cssText="padding:12px 0;border-bottom:1px solid #35577e";
  row.append(node("strong",(t.type==="depense"?"🔴 ":"🟢 ")+labels[t.type]+" : "+money(t.montant)),node("p",t.date_operation+" — "+t.libelle));
  if(t.membre_id)row.append(node("p","Choriste : "+(memberNames.get(t.membre_id)||"Non identifié")));
+ if(t.type==="cotisation")row.append(node("p","Mois de cotisation : "+(t.mois_cotisation?.slice(0,7)||"Non précisé")));
  if(t.poste_depense_id){const p=postes.find(p=>p.id===t.poste_depense_id);row.append(node("p","Poste : "+(p?.nom||"Poste non identifié")+(p&&((t.type==="depense")!==(p.nature==="depense"))?" ⚠️ Classement ancien à vérifier":"")))}
  if(t.commentaire)row.append(node("small",t.commentaire));
  if(isOwner){

@@ -151,7 +151,7 @@ async function financesChorale(){
  const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
  const date=field("Date de l'opération","date");date.value=today();
  const noteLabel=node("label","Commentaire (facultatif)"),note=document.createElement("textarea");note.maxLength=1000;note.rows=2;note.style.cssText="width:100%;padding:12px";form.append(noteLabel,note);
- const save=node("button","Enregistrer dans la caisse");save.type="submit",feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
+ const save=node("button","Enregistrer dans la caisse");save.type="submit";const feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
  function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation"}
  kind.onchange=togglePerson;togglePerson();
  form.onsubmit=async e=>{e.preventDefault();const val=Number(amount.value);if(!Number.isSafeInteger(val)||val<1||val>1000000000){feedback.textContent="Montant invalide.";return}

@@ -126,7 +126,40 @@ async function bibliotheque(){
  btn.disabled=true;const {data:link,error:linkErr}=await client.storage.from("bibliotheque-chorales").createSignedUrl(doc.chemin_fichier,300);
  if(linkErr||!link?.signedUrl){alert("Ouverture impossible : "+(linkErr?.message||"Erreur"));btn.disabled=false;return}
  const a=document.createElement("a");a.href=link.signedUrl;a.target="_blank";a.rel="noopener noreferrer";a.textContent="Ouvrir le document (lien valable 5 minutes)";a.style.display="block";a.style.padding="12px";card.append(a);btn.disabled=false;
- };card.append(btn);list.append(card)
+ };card.append(btn);
+ if(ownedIds.has(select.value)){
+ const editBtn=node("button","✏️ Modifier ce document");editBtn.type="button";editBtn.style.marginTop="10px";
+ editBtn.onclick=()=>{
+ editBtn.disabled=true;
+ const editForm=document.createElement("form");editForm.style.cssText="padding:12px;margin-top:12px;border:1px solid #c6a65c;border-radius:12px";
+ const etLabel=node("label","Titre du chant"),et=document.createElement("input");et.value=doc.titre;et.required=true;et.maxLength=150;
+ const ecLabel=node("label","Compositeur"),ec=document.createElement("input");ec.value=doc.compositeur||"";ec.maxLength=150;
+ const epLabel=node("label","Pupitre"),ep=document.createElement("select");ep.style.cssText="width:100%;padding:10px;color:#142946";
+ for(const [value,label] of voiceOptions){const op=document.createElement("option");op.value=value;op.textContent=label;op.selected=value===(doc.pupitre||"tous");ep.append(op)}
+ const efLabel=node("label","Remplacer le fichier (facultatif)"),ef=document.createElement("input");ef.type="file";ef.accept=file.accept;
+ const save=node("button","💾 Enregistrer les modifications");save.type="submit";
+ const cancel=node("button","Annuler");cancel.type="button";cancel.onclick=()=>{editForm.remove();editBtn.disabled=false};
+ const msg=node("p","");msg.setAttribute("role","status");
+ editForm.append(etLabel,et,ecLabel,ec,epLabel,ep,efLabel,ef,save,cancel,msg);card.append(editForm);
+ editForm.onsubmit=async event=>{
+ event.preventDefault();save.disabled=true;msg.textContent="Enregistrement en cours…";
+ const chosen=ef.files?.[0];let newPath=null;
+ if(chosen){
+ const ext=(chosen.name.split(".").pop()||"").toLowerCase(),mime=extensions[ext];
+ if(!mime||!allowed.has(mime)||chosen.size>15728640||chosen.size===0){msg.textContent="Fichier non accepté. PDF, JPG, PNG ou audio, 15 Mo maximum.";save.disabled=false;return}
+ newPath=select.value+"/"+crypto.randomUUID()+"."+ext;
+ const {error:uploadError}=await client.storage.from("bibliotheque-chorales").upload(newPath,chosen,{contentType:mime,upsert:false});
+ if(uploadError){msg.textContent="Impossible d'envoyer le nouveau fichier : "+uploadError.message;save.disabled=false;return}
+ }
+ const values={titre:et.value.trim(),compositeur:ec.value.trim()||null,pupitre:ep.value};
+ if(newPath)values.chemin_fichier=newPath;
+ const {data:updated,error:updateError}=await client.from("partitions").update(values).eq("id",doc.id).eq("chorale_id",select.value).select("id").maybeSingle();
+ if(updateError||!updated){msg.textContent="Modification impossible : "+(updateError?.message||"Accès refusé");save.disabled=false;return}
+ msg.textContent="Document modifié avec succès.";await refresh();
+ };
+ };card.append(editBtn);
+ }
+ list.append(card)
  }
  }
  select.onchange=async()=>{updateUpload();await refresh()};filter.onchange=refresh;

@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 19 : cotisations, caisse et gestion des trésoriers.</small></p>
+<p><small>Version 21 : postes de recettes et de dépenses, rapport financier mensuel.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -121,7 +121,7 @@ async function financesChorale(){
  client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
  client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire,poste_depense_id").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
  client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir),
- client.from("stella_postes_depense").select("id,nom").eq("chorale_id",choir).order("nom")
+ client.from("stella_postes_depense").select("id,nom,nature").eq("chorale_id",choir).order("nom")
  ]),new Promise((_,reject)=>setTimeout(()=>reject(Error("Délai dépassé")),12000))]); } catch(e) {summary.replaceChildren(node("p","Erreur de chargement : "+e.message));const retry=node("button","Réessayer");retry.onclick=load;summary.append(retry);return;}
  const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr},{data:categories,error:categoryErr}]=loaded;
  if(peopleErr||nameErr||entryErr||treasErr||categoryErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr||categoryErr).message));return}
@@ -140,12 +140,15 @@ async function financesChorale(){
  row.append(btn);treasBox.append(row)
  }
  }
- const catTitle=node("h3","📁 Postes de dépense");entryBox.append(catTitle,node("p","La trésorière peut créer plusieurs postes : transport, matériel, entretien, liturgie, etc."));
+ const catTitle=node("h3","📁 Postes de recettes et de dépenses");entryBox.append(catTitle,node("p","Créez des postes distincts pour les recettes et les dépenses."));
  const catForm=document.createElement("form"),catInput=document.createElement("input"),catBtn=node("button","➕ Créer un poste"),catStatus=node("p","");
- catInput.type="text";catInput.placeholder="Nom du poste (ex. Transport)";catInput.maxLength=100;catInput.required=true;catBtn.type="submit";catForm.append(catInput,catBtn,catStatus);entryBox.append(catForm);
- const catList=node("p",postes.length?"Postes existants : "+postes.map(p=>p.nom).join(" • "):"Aucun poste créé.");entryBox.append(catList);
+ const catNature=document.createElement("select");catNature.style.cssText="width:100%;padding:12px;color:#142946";
+ for(const [v,label] of [["depense","Dépense"],["recette","Recette"]]){const o=document.createElement("option");o.value=v;o.textContent=label;catNature.append(o)}
+ catInput.type="text";catInput.placeholder="Nom du poste (ex. Transport)";catInput.maxLength=100;catInput.required=true;catBtn.type="submit";
+ catForm.append(node("label","Nature du poste"),catNature,catInput,catBtn,catStatus);entryBox.append(catForm);
+ const catList=node("p",postes.length?"Postes existants : "+postes.map(p=>(p.nature==="recette"?"🟢 Recette : ":"🔴 Dépense : ")+p.nom).join(" • "):"Aucun poste créé.");entryBox.append(catList);
  catForm.onsubmit=async e=>{e.preventDefault();const nom=catInput.value.trim();if(nom.length<2)return;catBtn.disabled=true;
- const {error}=await client.from("stella_postes_depense").insert({chorale_id:choir,nom,cree_par:currentUser.id});
+ const {error}=await client.from("stella_postes_depense").insert({chorale_id:choir,nom,nature:catNature.value,cree_par:currentUser.id});
  if(error){catStatus.textContent="Impossible de créer le poste : "+error.message;catBtn.disabled=false;return}await load();};
  const form=document.createElement("form");form.append(node("h3","➕ Enregistrer une opération"));
  function field(label,type){form.append(node("label",label));const x=document.createElement("input");x.type=type;x.required=true;form.append(x);return x}
@@ -157,21 +160,21 @@ async function financesChorale(){
  form.append(personLabel,person);
  const posteLabel=node("label","Poste de dépense"),posteSelect=document.createElement("select");posteSelect.style.cssText=kind.style.cssText;
  const emptyPoste=document.createElement("option");emptyPoste.value="";emptyPoste.textContent="Choisir un poste";posteSelect.append(emptyPoste);
- for(const p of postes){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}
+ function updatePosteOptions(){posteSelect.replaceChildren();const opt0=document.createElement("option");opt0.value="";opt0.textContent="Choisir un poste";posteSelect.append(opt0);for(const p of postes.filter(p=>p.nature===(kind.value==="depense"?"depense":"recette"))){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}}
  form.append(posteLabel,posteSelect);
  const title=field("Libellé","text");title.maxLength=200;
  const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
  const date=field("Date de l'opération","date");date.value=today();
  const noteLabel=node("label","Commentaire (facultatif)"),note=document.createElement("textarea");note.maxLength=1000;note.rows=2;note.style.cssText="width:100%;padding:12px";form.append(noteLabel,note);
  const save=node("button","Enregistrer dans la caisse");save.type="submit";const feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
- function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation";posteLabel.hidden=posteSelect.hidden=kind.value!=="depense";posteSelect.required=kind.value==="depense"}
+ function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation";posteLabel.hidden=posteSelect.hidden=false;posteLabel.textContent=kind.value==="depense"?"Poste de dépense":"Poste de recette (facultatif)";posteSelect.required=kind.value==="depense";updatePosteOptions()}
  kind.onchange=togglePerson;togglePerson();
  form.onsubmit=async e=>{e.preventDefault();const val=Number(amount.value);if(!Number.isSafeInteger(val)||val<1||val>1000000000){feedback.textContent="Montant invalide.";return}
  if(kind.value==="cotisation"&&!person.value){feedback.textContent="Choisis un choriste.";return}
  if(kind.value==="depense"&&!posteSelect.value){feedback.textContent="Crée ou choisis un poste de dépense.";return}
  if(!confirm("Confirmer cette opération de "+money(val)+" ?"))return;
  save.disabled=true;feedback.textContent="Enregistrement…";
- const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),poste_depense_id:kind.value==="depense"?posteSelect.value:null,cree_par:currentUser.id});
+ const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),poste_depense_id:posteSelect.value||null,cree_par:currentUser.id});
  if(error){feedback.textContent="Erreur : "+error.message;save.disabled=false;return}
  await load();save.disabled=false;entryBox.prepend(node("p","✅ Opération enregistrée."));
  };entryBox.append(form);
@@ -180,6 +183,11 @@ async function financesChorale(){
  const dues=transactions.filter(t=>t.type==="cotisation").reduce((a,t)=>a+Number(t.montant),0);
  summary.replaceChildren(node("h2","📊 Situation de la caisse"),node("p","💵 Total des recettes : "+money(incomes)),node("p","🎼 Cotisations encaissées : "+money(dues)),node("p","💸 Dépenses : "+money(expenses)),node("h3","Solde calculé : "+money(incomes-expenses)));
  summary.append(node("p","Solde calculé à partir des opérations enregistrées. Il ne remplace pas un rapprochement avec les espèces ou le compte bancaire."));
+ const monthKey=today().slice(0,7),monthly=transactions.filter(t=>t.date_operation.slice(0,7)===monthKey);
+ const rMonth=monthly.filter(t=>t.type!=="depense").reduce((a,t)=>a+Number(t.montant),0),dMonth=monthly.filter(t=>t.type==="depense").reduce((a,t)=>a+Number(t.montant),0);
+ summary.append(node("h3","📅 Rapport financier du mois"),node("p","Mois : "+monthKey),node("p","Recettes du mois : "+money(rMonth)),node("p","Dépenses du mois : "+money(dMonth)),node("p","Résultat du mois : "+money(rMonth-dMonth)));
+ const byPoste=new Map();for(const t of monthly){const k=t.poste_depense_id||"sans";const key=(t.type==="depense"?"Dépense":"Recette")+" — "+(postes.find(p=>p.id===k)?.nom||"Sans poste");byPoste.set(key,(byPoste.get(key)||0)+Number(t.montant))}
+ for(const [name,total] of [...byPoste].sort((a,b)=>a[0].localeCompare(b[0])))summary.append(node("p",name+" : "+money(total)));
  const monthLabel=node("label","Filtrer les opérations par mois"),month=document.createElement("input");month.type="month";month.value=today().slice(0,7);
  const allLabel=node("label","Afficher toutes les opérations"),all=document.createElement("input");all.type="checkbox";all.style.width="auto";all.checked=true;
  const items=document.createElement("div"),exportBtn=node("button","📥 Exporter les opérations (CSV)");exportBtn.type="button";
@@ -190,7 +198,7 @@ async function financesChorale(){
  for(const t of arr){const row=document.createElement("div");row.style.cssText="padding:12px 0;border-bottom:1px solid #35577e";
  row.append(node("strong",(t.type==="depense"?"🔴 ":"🟢 ")+labels[t.type]+" : "+money(t.montant)),node("p",t.date_operation+" — "+t.libelle));
  if(t.membre_id)row.append(node("p","Choriste : "+(memberNames.get(t.membre_id)||"Non identifié")));
- if(t.poste_depense_id)row.append(node("p","Poste : "+(postes.find(p=>p.id===t.poste_depense_id)?.nom||"Poste non identifié")));
+ if(t.poste_depense_id){const p=postes.find(p=>p.id===t.poste_depense_id);row.append(node("p","Poste : "+(p?.nom||"Poste non identifié")+(p&&((t.type==="depense")!==(p.nature==="depense"))?" ⚠️ Classement ancien à vérifier":"")))}
  if(t.commentaire)row.append(node("small",t.commentaire));
  if(isOwner){const del=node("button","🗑️ Supprimer cette écriture");del.type="button";
  del.onclick=async()=>{if(!confirm("Supprimer définitivement cette écriture financière ? Cette action ne peut pas être annulée."))return;

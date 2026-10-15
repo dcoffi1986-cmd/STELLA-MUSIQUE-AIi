@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 10 : bibliothèque privée de partitions PDF et fichiers audio.</small></p>
+<p><small>Version 11 : bibliothèque avec photos JPG/PNG, PDF et audio.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -104,12 +104,12 @@ async function bibliotheque(){
  const upload=document.createElement("form");upload.append(node("h2","Ajouter un document"));
  const titleLabel=node("label","Titre du chant"),title=document.createElement("input");title.required=true;title.maxLength=150;
  const composerLabel=node("label","Compositeur (facultatif)"),composer=document.createElement("input");composer.maxLength=150;
- const fileLabel=node("label","Partition PDF ou fichier audio (15 Mo maximum)"),file=document.createElement("input");file.type="file";file.accept=".pdf,.mp3,.m4a,.wav,.ogg,.webm,application/pdf,audio/*";file.required=true;
+ const fileLabel=node("label","Partition PDF, photo JPG/PNG ou fichier audio (15 Mo maximum)"),file=document.createElement("input");file.type="file";file.accept=".pdf,.jpg,.jpeg,.png,.mp3,.m4a,.wav,.ogg,.webm,application/pdf,image/jpeg,image/png,audio/*";file.required=true;
  const submit=node("button","Ajouter à la bibliothèque");submit.type="submit";const uploadStatus=node("p","");uploadStatus.setAttribute("role","status");
  upload.append(titleLabel,title,composerLabel,composer,fileLabel,file,submit,uploadStatus);content.append(upload);
  const list=document.createElement("div");content.append(node("h2","Documents de la chorale"),list);
- const allowed=new Set(["application/pdf","audio/mpeg","audio/mp4","audio/x-m4a","audio/wav","audio/x-wav","audio/ogg","audio/webm"]);
- const extensions={pdf:"application/pdf",mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg",webm:"audio/webm"};
+ const allowed=new Set(["application/pdf","image/jpeg","image/png","audio/mpeg","audio/mp4","audio/x-m4a","audio/wav","audio/x-wav","audio/ogg","audio/webm"]);
+ const extensions={pdf:"application/pdf",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg",webm:"audio/webm"};
  function updateUpload(){upload.hidden=!ownedIds.has(select.value)}
  async function refresh(){
  list.replaceChildren(node("p","Chargement des documents…"));
@@ -131,7 +131,7 @@ async function bibliotheque(){
  e.preventDefault();if(!ownedIds.has(select.value)){uploadStatus.textContent="Seul le responsable peut ajouter des fichiers.";return}
  const chosen=file.files?.[0];if(!chosen){uploadStatus.textContent="Choisissez un fichier.";return}
  const ext=(chosen.name.split(".").pop()||"").toLowerCase();const mime=extensions[ext];
- if(!mime||!allowed.has(mime)||chosen.size>15728640||chosen.size===0){uploadStatus.textContent="Format non accepté ou fichier supérieur à 15 Mo. Formats : PDF, MP3, M4A, WAV, OGG, WEBM.";return}
+ if(!mime||!allowed.has(mime)||chosen.size>15728640||chosen.size===0){uploadStatus.textContent="Format non accepté ou fichier supérieur à 15 Mo. Formats : PDF, JPG, PNG, MP3, M4A, WAV, OGG, WEBM.";return}
  submit.disabled=true;uploadStatus.textContent="Envoi du document…";
  const path=select.value+"/"+crypto.randomUUID()+"."+ext;
  const {error:storageErr}=await client.storage.from("bibliotheque-chorales").upload(path,chosen,{contentType:mime,upsert:false});

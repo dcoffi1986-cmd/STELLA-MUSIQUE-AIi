@@ -8,9 +8,9 @@
 <main class="wrap"><nav class="tabs" aria-label="Navigation">
 <button data-page="accueil">🏠 Accueil</button><button data-page="discussions">💬 Discussions</button>
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
-<button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
+<button data-page="repetitions">📅 Répétitions</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 13 : classement des partitions et audios par pupitre.</small></p>
+<p><small>Version 17 : gestion des répétitions, chants et présences.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -37,6 +37,7 @@ function show(page){
  if(page==="chorales"){chorales();return}
  if(page==="discussions"){discussions();return}
  if(page==="bibliotheque"){bibliotheque();return}
+ if(page==="repetitions"){repetitions();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
@@ -84,6 +85,107 @@ async function discussions(){
  await loadChannels();await refresh();
 }
 
+
+
+async function repetitions(){
+ content.append(node("h2","📅 Répétitions de la chorale"));
+ if(!currentUser){content.append(node("p","Connectez-vous pour consulter les répétitions."));return}
+ const status=node("p","Chargement…");status.setAttribute("role","status");content.append(status);
+ const [{data:member,error:memberError},{data:owned,error:ownedError}]=await Promise.all([
+ client.from("membres").select("chorale_id").eq("utilisateur_id",currentUser.id),
+ client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id)
+ ]);
+ if(memberError||ownedError){status.textContent="Chargement impossible : "+(memberError||ownedError).message;return}
+ const adminIds=new Set((owned||[]).map(c=>c.id));
+ const ids=[...new Set([...(member||[]).map(m=>m.chorale_id),...adminIds])];
+ if(!ids.length){status.textContent="Vous n'appartenez à aucune chorale.";return}
+ const {data:choirs,error:choirError}=await client.from("chorales").select("id,nom").in("id",ids);
+ if(choirError){status.textContent="Erreur : "+choirError.message;return}
+ const chooseLabel=node("label","Chorale"),choose=document.createElement("select");choose.style.cssText="width:100%;padding:12px;margin:8px 0 15px;color:#142946";
+ for(const ch of (choirs||[])){const op=document.createElement("option");op.value=ch.id;op.textContent=ch.nom;choose.append(op)}
+ content.append(chooseLabel,choose);
+ const form=document.createElement("form");form.append(node("h2","➕ Programmer une répétition"));
+ function field(label,type,max){const l=node("label",label),i=document.createElement("input");i.type=type;i.required=true;if(max)i.maxLength=max;form.append(l,i);return i}
+ const title=field("Objet de la répétition","text",150),date=field("Date et heure","datetime-local"),place=field("Lieu de la répétition","text",200);
+ const chantsLabel=node("label","🎼 Chants à préparer (un titre par ligne)"),chants=document.createElement("textarea");chants.rows=4;chants.maxLength=3000;chants.style.cssText="width:100%;padding:12px;border-radius:10px;font-size:16px";
+ const notesLabel=node("label","Informations complémentaires"),notes=document.createElement("textarea");notes.rows=3;notes.maxLength=2000;notes.style.cssText=chants.style.cssText;
+ const submit=node("button","Enregistrer la répétition");submit.type="submit";const formStatus=node("p","");formStatus.setAttribute("role","status");
+ form.append(chantsLabel,chants,notesLabel,notes,submit,formStatus);content.append(form);
+ const list=document.createElement("div");content.append(node("h2","📢 Calendrier des répétitions"),list);
+ const dateFmt=d=>new Date(d).toLocaleString("fr-FR",{dateStyle:"full",timeStyle:"short"});
+ function isAdmin(){return adminIds.has(choose.value)}
+ function updateForm(){form.hidden=!isAdmin()}
+ async function refresh(){
+ list.replaceChildren(node("p","Chargement des répétitions…"));
+ const {data,error}=await client.from("repetitions").select("id,titre,debut,lieu,chants,notes").eq("chorale_id",choose.value).order("debut",{ascending:true}).limit(100);
+ list.replaceChildren();
+ if(error){list.append(node("p","Erreur : "+error.message));return}
+ if(!data?.length){list.append(node("p","Aucune répétition programmée."));return}
+ const upcoming=data.filter(r=>new Date(r.debut)>=new Date()),past=data.filter(r=>new Date(r.debut)<new Date()).reverse();
+ for(const r of [...upcoming,...past]){
+ const box=document.createElement("div");box.className="card";
+ box.append(node("h3",r.titre),node("p","📅 "+dateFmt(r.debut)),node("p","📍 "+r.lieu));
+ if(r.chants)box.append(node("h3","🎼 Chants à préparer"),node("p",r.chants));
+ if(r.notes)box.append(node("p","ℹ️ "+r.notes));
+ if(new Date(r.debut)<new Date())box.append(node("small","Répétition passée"));
+ const attendance=node("div","");box.append(attendance);
+ if(isAdmin()){
+ const edit=node("button","✏️ Modifier la répétition");edit.type="button";
+ edit.onclick=()=>{
+ edit.disabled=true;const ef=document.createElement("form");
+ ef.style.cssText="padding:12px;border:1px solid #d5a943;border-radius:12px;margin-top:12px";
+ function inp(label,value,type="text"){ef.append(node("label",label));const x=document.createElement("input");x.type=type;x.required=true;x.value=value;ef.append(x);return x}
+ const et=inp("Objet",r.titre),ed=inp("Date et heure",new Date(new Date(r.debut).getTime()-new Date(r.debut).getTimezoneOffset()*60000).toISOString().slice(0,16),"datetime-local"),ep=inp("Lieu",r.lieu);
+ const ec=inp("Chants à préparer",r.chants||""),en=inp("Informations",r.notes||"");
+ const save=node("button","Enregistrer les modifications");save.type="submit",cancel=node("button","Annuler");cancel.type="button",msg=node("p","");
+ cancel.onclick=()=>{ef.remove();edit.disabled=false};ef.append(save,cancel,msg);box.append(ef);
+ ef.onsubmit=async e=>{e.preventDefault();if(!ed.value)return;save.disabled=true;const {error}=await client.from("repetitions").update({titre:et.value.trim(),debut:new Date(ed.value).toISOString(),lieu:ep.value.trim(),chants:ec.value.trim(),notes:en.value.trim()}).eq("id",r.id).eq("chorale_id",choose.value);if(error){msg.textContent="Erreur : "+error.message;save.disabled=false;return}await refresh()};
+ };box.append(edit);
+ const del=node("button","🗑️ Annuler et supprimer cette répétition");del.type="button";
+ del.onclick=async()=>{if(!confirm("Supprimer définitivement cette répétition et ses présences ?"))return;del.disabled=true;const {error}=await client.from("repetitions").delete().eq("id",r.id).eq("chorale_id",choose.value);if(error){alert("Suppression impossible : "+error.message);del.disabled=false;return}await refresh()};
+ box.append(del);
+ const toggle=node("button","👥 Gérer les présences");toggle.type="button";
+ toggle.onclick=async()=>{toggle.disabled=true;attendance.replaceChildren(node("p","Chargement des choristes…"));
+ const [{data:people,error:peopleError},{data:marks,error:markError}]=await Promise.all([
+ client.from("membres").select("utilisateur_id").eq("chorale_id",choose.value),
+ client.from("presences_repetition").select("utilisateur_id,statut").eq("repetition_id",r.id)
+ ]);
+ if(peopleError||markError){attendance.replaceChildren(node("p","Erreur : "+(peopleError||markError).message));toggle.disabled=false;return}
+ const {data:names}=await client.rpc("noms_membres_chorale",{p_chorale_id:choose.value});
+ const nameMap=new Map((names||[]).map(p=>[p.utilisateur_id,p.nom]));
+ const markMap=new Map((marks||[]).map(m=>[m.utilisateur_id,m.statut]));
+ attendance.replaceChildren(node("h3","Feuille de présence"));
+ const counts=node("p","");attendance.append(counts);
+ function recount(){const values=[...markMap.values()];counts.textContent="Présents : "+values.filter(v=>v==="present").length+" · Absents : "+values.filter(v=>v==="absent").length+" · Excusés : "+values.filter(v=>v==="excuse").length+" · Non renseignés : "+Math.max(0,(people||[]).length-values.length)}
+ recount();
+ for(const p of people||[]){
+ const row=document.createElement("div");row.style.cssText="padding:10px 0;border-bottom:1px solid #35577e";
+ row.append(node("label",nameMap.get(p.utilisateur_id)||"Choriste"));
+ const choice=document.createElement("select");choice.style.cssText="width:100%;padding:10px;color:#142946";
+ for(const [val,label] of [["","Non renseigné"],["present","Présent"],["absent","Absent"],["excuse","Excusé"]]){const opt=document.createElement("option");opt.value=val;opt.textContent=label;choice.append(opt)}
+ choice.value=markMap.get(p.utilisateur_id)||"";
+ const feedback=node("small","");
+ choice.onchange=async()=>{choice.disabled=true;const value=choice.value;const q=client.from("presences_repetition");
+ const {error}=value?await q.upsert({repetition_id:r.id,utilisateur_id:p.utilisateur_id,statut:value,mis_a_jour:new Date().toISOString()},{onConflict:"repetition_id,utilisateur_id"}):await q.delete().eq("repetition_id",r.id).eq("utilisateur_id",p.utilisateur_id);
+ if(error){feedback.textContent="Erreur : "+error.message;choice.value=markMap.get(p.utilisateur_id)||""}else{feedback.textContent="Enregistré";if(value)markMap.set(p.utilisateur_id,value);else markMap.delete(p.utilisateur_id);recount()}choice.disabled=false};
+ row.append(choice,feedback);attendance.append(row)
+ }
+ toggle.disabled=false;
+ };box.append(toggle)
+ }else{
+ const {data:myMark}=await client.from("presences_repetition").select("statut").eq("repetition_id",r.id).eq("utilisateur_id",currentUser.id).maybeSingle();
+ if(myMark)box.append(node("p","Votre présence : "+({present:"Présent",absent:"Absent",excuse:"Excusé"}[myMark.statut]||"Non renseignée")));
+ }
+ list.append(box)
+ }
+ }
+ form.onsubmit=async e=>{e.preventDefault();if(!isAdmin())return;submit.disabled=true;formStatus.textContent="Enregistrement…";
+ const {error}=await client.from("repetitions").insert({chorale_id:choose.value,titre:title.value.trim(),debut:new Date(date.value).toISOString(),lieu:place.value.trim(),chants:chants.value.trim(),notes:notes.value.trim(),cree_par:currentUser.id});
+ if(error)formStatus.textContent="Erreur : "+error.message;else{form.reset();formStatus.textContent="Répétition programmée et visible par les choristes.";await refresh()}
+ submit.disabled=false};
+ choose.onchange=()=>{updateForm();refresh()};
+ updateForm();status.textContent="Les répétitions enregistrées sont visibles par les membres de cette chorale.";await refresh()
+}
 
 async function bibliotheque(){
  content.append(node("h2","📚 Bibliothèque musicale"));

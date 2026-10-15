@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 24 : premier répétiteur SATB (fichiers audio par pupitre).</small></p>
+<p><small>Version 25 : clavier musical simple et répétiteur SATB.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -461,8 +461,30 @@ async function repetitions(){
 }
 
 
+
+function clavierMusical(){
+ const box=document.createElement("section");box.style.cssText="padding:18px 12px;margin:18px 0;border:1px solid #c5a45c;border-radius:16px;background:#1c3557";
+ box.append(node("h3","🎹 Mon premier clavier musical"),node("p","Touchez une touche pour entendre sa note. Aucun fichier audio n'est nécessaire."));
+ const msg=node("p","Commencez par DO, puis RÉ, MI, FA, SOL, LA, SI, DO.");msg.setAttribute("role","status");
+ const keys=document.createElement("div");keys.style.cssText="display:flex;gap:3px;justify-content:center;align-items:stretch;overflow-x:auto;padding:10px 0";
+ const notes=[["DO",261.63],["DO♯",277.18],["RÉ",293.66],["RÉ♯",311.13],["MI",329.63],["FA",349.23],["FA♯",369.99],["SOL",392],["SOL♯",415.3],["LA",440],["LA♯",466.16],["SI",493.88],["DO↑",523.25]];
+ let ctx=null;
+ function play(label,hz){
+ try{
+ const AC=window.AudioContext||window.webkitAudioContext;if(!AC){msg.textContent="Le son n'est pas disponible sur ce navigateur.";return}
+ if(!ctx)ctx=new AC();ctx.resume();
+ const osc=ctx.createOscillator(),gain=ctx.createGain(),now=ctx.currentTime;
+ osc.type="sine";osc.frequency.value=hz;gain.gain.setValueAtTime(0.0001,now);gain.gain.exponentialRampToValueAtTime(0.2,now+0.025);gain.gain.exponentialRampToValueAtTime(0.0001,now+0.65);
+ osc.connect(gain);gain.connect(ctx.destination);osc.start(now);osc.stop(now+0.68);msg.textContent="Vous écoutez : "+label;
+ }catch(e){msg.textContent="Impossible de jouer la note. Vérifiez le volume du téléphone."}
+ }
+ for(const [label,hz] of notes){const sharp=label.includes("♯"),b=node("button",label);b.type="button";b.style.cssText="flex:1 0 38px;min-width:38px;height:"+(sharp?"95":"135")+"px;padding:4px 1px;border:1px solid "+(sharp?"#aaa":"#aaa")+";border-radius:0 0 7px 7px;background:"+(sharp?"#27364c":"#fff")+";color:"+(sharp?"#fff":"#12243d")+";font-size:12px;font-weight:bold;align-self:flex-start";b.onclick=()=>play(label,hz);keys.append(b)}
+ box.append(keys,msg,node("p","Astuce : augmentez le volume du téléphone. Les touches noires sont les dièses (♯)."));
+ return box;
+}
+
 async function repetiteurSATB(){
- content.append(node("h2","🎧 Répétiteur SATB"),node("p","Écoutez et travaillez votre voix à votre rythme. Pour entendre une voix isolée, la chorale doit fournir un enregistrement audio séparé pour ce pupitre. Cet outil ne sépare pas automatiquement les voix d’un fichier mixé."));
+ content.append(node("h2","🎧 Répétiteur SATB"),clavierMusical(),node("p","Pour les enregistrements par pupitre, la chorale doit fournir un fichier audio séparé pour chaque voix."));
  if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux enregistrements de votre chorale."));return}
  const status=node("p","Recherche des chorales…");status.setAttribute("role","status");content.append(status);
  try{

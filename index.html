@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 11 : bibliothèque avec photos JPG/PNG, PDF et audio.</small></p>
+<p><small>Version 12 : bouton de visibilité du mot de passe.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -234,9 +234,9 @@ const b=node("button","Se déconnecter");b.onclick=async()=>{const {error}=await
  const buttons=document.createElement("div");buttons.className="row";
  const signup=node("button","S'inscrire");signup.type="button";
  const login=node("button","Se connecter");login.type="submit";
- buttons.append(signup,login);
+ const eye=node("button","👁 Afficher le mot de passe");eye.type="button";eye.onclick=()=>{const visible=password.type==="password";password.type=visible?"text":"password";eye.textContent=visible?"🙈 Masquer le mot de passe":"👁 Afficher le mot de passe"};buttons.append(signup,login);
  const message=node("p","");message.id="message";message.setAttribute("role","status");
- form.append(labelEmail,email,labelPassword,password,buttons,message);
+ form.append(labelEmail,email,labelPassword,password,eye,buttons,message);
  async function submit(kind){if(!form.reportValidity())return;signup.disabled=login.disabled=true;message.textContent="Veuillez patienter…";try{
  const loginName=email.value.trim().toLowerCase();if(kind==="signup"&&!loginName.includes("@"))throw Error("Pour une inscription personnelle, une adresse e-mail est nécessaire. Les choristes sans e-mail sont inscrits par leur responsable.");const credentials={email:loginName.includes("@")?loginName:loginName+"@choristes.invalid",password:password.value};
  const {data,error}=kind==="signup"?await client.auth.signUp(credentials):await client.auth.signInWithPassword(credentials);

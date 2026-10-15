@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 21 : postes de recettes et de dépenses, rapport financier mensuel.</small></p>
+<p><small>Version 22 : correction, renommage et désactivation des postes.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -121,7 +121,7 @@ async function financesChorale(){
  client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
  client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire,poste_depense_id").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
  client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir),
- client.from("stella_postes_depense").select("id,nom,nature").eq("chorale_id",choir).order("nom")
+ client.from("stella_postes_depense").select("id,nom,nature,actif").eq("chorale_id",choir).order("nom")
  ]),new Promise((_,reject)=>setTimeout(()=>reject(Error("Délai dépassé")),12000))]); } catch(e) {summary.replaceChildren(node("p","Erreur de chargement : "+e.message));const retry=node("button","Réessayer");retry.onclick=load;summary.append(retry);return;}
  const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr},{data:categories,error:categoryErr}]=loaded;
  if(peopleErr||nameErr||entryErr||treasErr||categoryErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr||categoryErr).message));return}
@@ -146,7 +146,22 @@ async function financesChorale(){
  for(const [v,label] of [["depense","Dépense"],["recette","Recette"]]){const o=document.createElement("option");o.value=v;o.textContent=label;catNature.append(o)}
  catInput.type="text";catInput.placeholder="Nom du poste (ex. Transport)";catInput.maxLength=100;catInput.required=true;catBtn.type="submit";
  catForm.append(node("label","Nature du poste"),catNature,catInput,catBtn,catStatus);entryBox.append(catForm);
- const catList=node("p",postes.length?"Postes existants : "+postes.map(p=>(p.nature==="recette"?"🟢 Recette : ":"🔴 Dépense : ")+p.nom).join(" • "):"Aucun poste créé.");entryBox.append(catList);
+ const catList=node("div","");entryBox.append(catList);
+ if(!postes.length)catList.append(node("p","Aucun poste créé."));
+ for(const p of postes){
+ const row=document.createElement("div");row.style.cssText="padding:9px 0;border-bottom:1px solid #35577e";
+ row.append(node("span",(p.nature==="recette"?"🟢 Recette : ":"🔴 Dépense : ")+p.nom+(p.actif?"":" (désactivé)")));
+ if(isOwner){
+ const rename=node("button","✏️ Renommer"),toggle=node("button",p.actif?"Désactiver":"Réactiver");rename.type=toggle.type="button";
+ rename.onclick=async()=>{const nom=prompt("Nouveau nom du poste :",p.nom);if(nom===null)return;if(nom.trim().length<2){alert("Nom trop court.");return}
+ const {error}=await client.from("stella_postes_depense").update({nom:nom.trim()}).eq("id",p.id).eq("chorale_id",choir);
+ if(error){alert("Erreur : "+error.message);return}await load()};
+ toggle.onclick=async()=>{if(!confirm((p.actif?"Désactiver":"Réactiver")+" le poste « "+p.nom+" » ?"))return;
+ const {error}=await client.from("stella_postes_depense").update({actif:!p.actif}).eq("id",p.id).eq("chorale_id",choir);
+ if(error){alert("Erreur : "+error.message);return}await load()};
+ row.append(rename,toggle);
+ }catList.append(row);
+ }
  catForm.onsubmit=async e=>{e.preventDefault();const nom=catInput.value.trim();if(nom.length<2)return;catBtn.disabled=true;
  const {error}=await client.from("stella_postes_depense").insert({chorale_id:choir,nom,nature:catNature.value,cree_par:currentUser.id});
  if(error){catStatus.textContent="Impossible de créer le poste : "+error.message;catBtn.disabled=false;return}await load();};
@@ -160,7 +175,7 @@ async function financesChorale(){
  form.append(personLabel,person);
  const posteLabel=node("label","Poste de dépense"),posteSelect=document.createElement("select");posteSelect.style.cssText=kind.style.cssText;
  const emptyPoste=document.createElement("option");emptyPoste.value="";emptyPoste.textContent="Choisir un poste";posteSelect.append(emptyPoste);
- function updatePosteOptions(){posteSelect.replaceChildren();const opt0=document.createElement("option");opt0.value="";opt0.textContent="Choisir un poste";posteSelect.append(opt0);for(const p of postes.filter(p=>p.nature===(kind.value==="depense"?"depense":"recette"))){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}}
+ function updatePosteOptions(){posteSelect.replaceChildren();const opt0=document.createElement("option");opt0.value="";opt0.textContent="Choisir un poste";posteSelect.append(opt0);for(const p of postes.filter(p=>p.actif&&p.nature===(kind.value==="depense"?"depense":"recette"))){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}}
  form.append(posteLabel,posteSelect);
  const title=field("Libellé","text");title.maxLength=200;
  const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
@@ -200,7 +215,18 @@ async function financesChorale(){
  if(t.membre_id)row.append(node("p","Choriste : "+(memberNames.get(t.membre_id)||"Non identifié")));
  if(t.poste_depense_id){const p=postes.find(p=>p.id===t.poste_depense_id);row.append(node("p","Poste : "+(p?.nom||"Poste non identifié")+(p&&((t.type==="depense")!==(p.nature==="depense"))?" ⚠️ Classement ancien à vérifier":"")))}
  if(t.commentaire)row.append(node("small",t.commentaire));
- if(isOwner){const del=node("button","🗑️ Supprimer cette écriture");del.type="button";
+ if(isOwner){
+ const change=node("button","✏️ Corriger le poste de cette opération");change.type="button";
+ change.onclick=async()=>{const wanted=t.type==="depense"?"depense":"recette";const choices=postes.filter(p=>p.nature===wanted);
+ const message="Choisis le numéro du poste :\\n0. Aucun poste\\n"+choices.map((p,i)=>(i+1)+". "+p.nom+(p.actif?"":" (désactivé)")).join("\\n");
+ const answer=prompt(message);if(answer===null)return;const k=Number(answer);
+ if(!Number.isInteger(k)||k<0||k>choices.length){alert("Choix invalide.");return}
+ const target=k===0?null:choices[k-1].id;
+ if(!confirm("Confirmer la correction du poste ? Le montant restera inchangé."))return;
+ const {error}=await client.rpc("stella_corriger_poste_operation",{p_operation:t.id,p_poste:target});
+ if(error){alert("Erreur : "+error.message);return}await load()};
+ row.append(change);
+ const del=node("button","🗑️ Supprimer cette écriture");del.type="button";
  del.onclick=async()=>{if(!confirm("Supprimer définitivement cette écriture financière ? Cette action ne peut pas être annulée."))return;
  del.disabled=true;const {error}=await client.from("stella_finances").delete().eq("id",t.id).eq("chorale_id",choir);
  if(error){alert("Suppression impossible : "+error.message);del.disabled=false;return}await load()};row.append(del)}

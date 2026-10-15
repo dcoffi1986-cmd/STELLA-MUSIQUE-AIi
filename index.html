@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 26 : bibliothèque reliée au répétiteur SATB.</small></p>
+<p><small>Version 27 : prototype piano MusicXML dans le répétiteur SATB.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -484,6 +484,75 @@ function clavierMusical(){
  return box;
 }
 
+
+function musicXMLPiano(){
+ const box=document.createElement("section");box.className="card";
+ box.append(node("h3","🎹 Piano intelligent — MusicXML (prototype)"),node("p","Testez un fichier MusicXML (.musicxml, .xml ou .mxl) de votre téléphone. Les PDF et photos ne sont pas encore convertis en notes. Le fichier reste sur votre appareil."));
+ const file=document.createElement("input");file.type="file";file.accept=".musicxml,.xml,application/xml,.mxl";file.setAttribute("aria-label","Choisir un fichier MusicXML");
+ const part=document.createElement("select"),rate=document.createElement("select");
+ for(const [v,t] of [["0.5","Très lent (0,5×)"],["0.75","Lent (0,75×)"],["1","Normal (1×)"],["1.25","Rapide (1,25×)"]]){const o=document.createElement("option");o.value=v;o.textContent=t;rate.append(o)}rate.value="1";
+ part.style.cssText=rate.style.cssText="width:100%;padding:12px;color:#142946";
+ const play=node("button","▶️ Écouter au piano"),stop=node("button","⏹ Arrêter"),msg=node("p","Sélectionnez un fichier MusicXML.");msg.setAttribute("role","status");
+ play.disabled=true;stop.disabled=true;
+ box.append(node("label","Fichier MusicXML"),file,node("label","Voix / partie musicale"),part,node("label","Vitesse"),rate,play,stop,msg);
+ let parsed=[],ctx=null,active=[],timer=null,run=0;
+ function halt(){run++;if(timer){clearTimeout(timer);timer=null}for(const o of active){try{o.stop()}catch(e){}}active=[];stop.disabled=true}
+ stop.onclick=halt;
+ const child=(el,tag)=>Array.from(el?.children||[]).find(x=>x.localName===tag);
+ const children=(el,tag)=>Array.from(el?.children||[]).filter(x=>x.localName===tag);
+ const val=(el,tag)=>child(el,tag)?.textContent?.trim()||"";
+ const noteMidi=n=>{const pitch=child(n,"pitch");if(!pitch)return null;const step=val(pitch,"step");const octave=Number(val(pitch,"octave"));const alter=Number(val(pitch,"alter")||0);const semis={C:0,D:2,E:4,F:5,G:7,A:9,B:11};return semis[step]===undefined||!Number.isFinite(octave)?null:(octave+1)*12+semis[step]+alter};
+ function decodeXML(xml){
+ const doc=new DOMParser().parseFromString(xml,"application/xml");
+ if(doc.querySelector("parsererror"))throw Error("Le fichier MusicXML est invalide.");
+ const root=doc.documentElement;if(root.localName!=="score-partwise")throw Error("Ce prototype accepte les fichiers MusicXML score-partwise.");
+ const names=new Map(children(child(root,"part-list"),"score-part").map(x=>[x.getAttribute("id"),val(x,"part-name")]));
+ let result=[];let tempo=100;
+ for(const p of children(root,"part")){
+ let divisions=1,measureStart=0,events=[],voices=new Map();
+ for(const measure of children(p,"measure")){
+ let cursor=0,lastOnset=0,furthest=0;
+ for(const e of Array.from(measure.children)){
+ if(e.localName==="attributes"){const d=Number(val(e,"divisions"));if(d>0)divisions=d}
+ if(e.localName==="direction"){const sound=child(e,"sound");const t=Number(sound?.getAttribute("tempo"));if(t>0&&t<400)tempo=t}
+ if(e.localName==="backup"){cursor-=Number(val(e,"duration")||0)/divisions;continue}
+ if(e.localName==="forward"){cursor+=Number(val(e,"duration")||0)/divisions;furthest=Math.max(furthest,cursor);continue}
+ if(e.localName!=="note")continue;
+ const duration=Math.max(0,Number(val(e,"duration")||0)/divisions),isChord=!!child(e,"chord"),onset=isChord?lastOnset:cursor;
+ const v=val(e,"voice")||"1",staff=val(e,"staff")||"1",key=staff+"|"+v;
+ if(!voices.has(key))voices.set(key,[]);
+ const midi=noteMidi(e);
+ if(midi!==null&&!child(e,"rest")&&duration>0)voices.get(key).push({beat:measureStart+onset,length:duration,midi});
+ if(!isChord){lastOnset=cursor;cursor+=duration}furthest=Math.max(furthest,cursor,onset+duration);
+ }
+ measureStart+=Math.max(furthest,0);
+ }
+ for(const [key,notes] of voices)if(notes.length)result.push({label:(names.get(p.getAttribute("id"))||"Partie")+" — voix "+key.replace("|","/"),notes});
+ }
+ return {result,tempo};
+ }
+ file.onchange=async()=>{
+ halt();parsed=[];part.replaceChildren();play.disabled=true;
+ const f=file.files?.[0];if(!f)return;
+ if(/\.mxl$/i.test(f.name)){msg.textContent="Le format .mxl compressé n'est pas encore pris en charge. Exportez en .musicxml ou .xml.";return}
+ if(f.size>5*1024*1024){msg.textContent="Fichier trop volumineux (maximum 5 Mo).";return}
+ try{const data=decodeXML(await f.text());parsed=data.result;if(!parsed.length)throw Error("Aucune note lisible trouvée.");for(let i=0;i<parsed.length;i++){const o=document.createElement("option");o.value=i;o.textContent=parsed[i].label;part.append(o)}box.dataset.tempo=data.tempo;play.disabled=false;msg.textContent=parsed.length+" partie(s)/voix détectée(s). Vérifiez le pupitre avant écoute : l'identification SATB automatique n'est pas garantie."}catch(e){msg.textContent="Impossible de lire la partition : "+e.message}
+ };
+ play.onclick=async()=>{
+ halt();const track=parsed[Number(part.value)];if(!track)return;
+ try{
+ ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+ const speed=Number(rate.value),secBeat=60/(Number(box.dataset.tempo)||100)/speed,notes=track.notes;
+ if(notes.length>6000)throw Error("Partition trop longue pour ce prototype.");
+ const begin=ctx.currentTime+0.08,first=Math.min(...notes.map(n=>n.beat)),end=Math.max(...notes.map(n=>n.beat+n.length));
+ if((end-first)*secBeat>600)throw Error("Lecture limitée à dix minutes.");
+ for(const n of notes){const start=begin+(n.beat-first)*secBeat,dur=Math.max(0.06,n.length*secBeat*0.92);const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="triangle";osc.frequency.value=440*Math.pow(2,(n.midi-69)/12);gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(0.11,start+0.015);gain.gain.setValueAtTime(0.11,start+Math.max(0.016,dur-0.045));gain.gain.linearRampToValueAtTime(0,start+dur);osc.connect(gain).connect(ctx.destination);osc.start(start);osc.stop(start+dur+0.01);active.push(osc)}
+ stop.disabled=false;const thisRun=run;msg.textContent="🎹 Lecture au piano : "+track.label;timer=setTimeout(()=>{if(thisRun===run){active=[];stop.disabled=true;msg.textContent="Lecture terminée."}},Math.ceil((end-first)*secBeat*1000)+300);
+ }catch(e){halt();msg.textContent="Erreur de lecture : "+e.message}
+ };
+ return box;
+}
+
 async function repetiteurSATB(selectedPartition=null){
  content.append(node("h2","🎧 Répétiteur SATB"));
  if(selectedPartition){
@@ -492,7 +561,7 @@ async function repetiteurSATB(selectedPartition=null){
  chosenBox.append(node("p","⏳ La lecture automatique des notes PDF ou des photos n'est pas encore disponible. Nous préparons cette fonction. Vous pouvez déjà écouter les enregistrements SATB lorsqu'ils existent."));
  content.append(chosenBox);
  }
- content.append(node("p","Choisissez votre pupitre. Pour écouter une voix isolée, un fichier audio correspondant doit être disponible."));
+ content.append(musicXMLPiano(),node("p","Choisissez votre pupitre. Pour écouter une voix isolée, un fichier audio correspondant doit être disponible."));
  if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux enregistrements de votre chorale."));return}
  const status=node("p","Recherche des chorales…");status.setAttribute("role","status");content.append(status);
  try{

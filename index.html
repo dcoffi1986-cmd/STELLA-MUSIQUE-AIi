@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 12 : bouton de visibilité du mot de passe.</small></p>
+<p><small>Version 13 : classement des partitions et audios par pupitre.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -104,21 +104,24 @@ async function bibliotheque(){
  const upload=document.createElement("form");upload.append(node("h2","Ajouter un document"));
  const titleLabel=node("label","Titre du chant"),title=document.createElement("input");title.required=true;title.maxLength=150;
  const composerLabel=node("label","Compositeur (facultatif)"),composer=document.createElement("input");composer.maxLength=150;
+ const voiceLabel=node("label","Pupitre concerné"),voice=document.createElement("select");voice.style.cssText="width:100%;padding:12px;margin:8px 0 14px;color:#142946";const voiceOptions=[["tous","Tous les pupitres"],["soprano","Soprano"],["alto","Alto"],["tenor","Ténor"],["basse","Basse"]];for(const [value,label] of voiceOptions){const option=document.createElement("option");option.value=value;option.textContent=label;voice.append(option)};
  const fileLabel=node("label","Partition PDF, photo JPG/PNG ou fichier audio (15 Mo maximum)"),file=document.createElement("input");file.type="file";file.accept=".pdf,.jpg,.jpeg,.png,.mp3,.m4a,.wav,.ogg,.webm,application/pdf,image/jpeg,image/png,audio/*";file.required=true;
  const submit=node("button","Ajouter à la bibliothèque");submit.type="submit";const uploadStatus=node("p","");uploadStatus.setAttribute("role","status");
- upload.append(titleLabel,title,composerLabel,composer,fileLabel,file,submit,uploadStatus);content.append(upload);
- const list=document.createElement("div");content.append(node("h2","Documents de la chorale"),list);
+ upload.append(titleLabel,title,composerLabel,composer,voiceLabel,voice,fileLabel,file,submit,uploadStatus);content.append(upload);
+ const filterLabel=node("label","Filtrer les chants par pupitre"),filter=document.createElement("select");filter.style.cssText="width:100%;padding:12px;margin:8px 0 16px;color:#142946";for(const [value,label] of [["all","Tous les chants"],["tous","Tous les pupitres"],["soprano","Soprano"],["alto","Alto"],["tenor","Ténor"],["basse","Basse"]]){const option=document.createElement("option");option.value=value;option.textContent=label;filter.append(option)};
+ const list=document.createElement("div");content.append(node("h2","Documents de la chorale"),filterLabel,filter,list);
  const allowed=new Set(["application/pdf","image/jpeg","image/png","audio/mpeg","audio/mp4","audio/x-m4a","audio/wav","audio/x-wav","audio/ogg","audio/webm"]);
  const extensions={pdf:"application/pdf",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg",webm:"audio/webm"};
  function updateUpload(){upload.hidden=!ownedIds.has(select.value)}
  async function refresh(){
  list.replaceChildren(node("p","Chargement des documents…"));
- const {data,error}=await client.from("partitions").select("id,titre,compositeur,chemin_fichier,cree_le").eq("chorale_id",select.value).order("cree_le",{ascending:false}).limit(100);
+ const {data,error}=await client.from("partitions").select("id,titre,compositeur,chemin_fichier,cree_le,pupitre").eq("chorale_id",select.value).order("cree_le",{ascending:false}).limit(100);
  list.replaceChildren();
  if(error){list.append(node("p","Lecture impossible : "+error.message));return}
  if(!data?.length){list.append(node("p","Aucun document pour le moment."));return}
  for(const doc of data){
- const card=document.createElement("div");card.className="card";card.append(node("h3",doc.titre),node("p",doc.compositeur||"Compositeur non précisé"));
+ if(filter.value!=="all" && (doc.pupitre||"tous")!==filter.value)continue;
+ const card=document.createElement("div");card.className="card";card.append(node("h3",doc.titre),node("p","🎤 "+(voiceOptions.find(v=>v[0]===(doc.pupitre||"tous"))?.[1]||"Tous les pupitres")),node("p",doc.compositeur||"Compositeur non précisé"));
  const btn=node("button","📄 Ouvrir / écouter");btn.type="button";btn.onclick=async()=>{
  btn.disabled=true;const {data:link,error:linkErr}=await client.storage.from("bibliotheque-chorales").createSignedUrl(doc.chemin_fichier,300);
  if(linkErr||!link?.signedUrl){alert("Ouverture impossible : "+(linkErr?.message||"Erreur"));btn.disabled=false;return}
@@ -126,7 +129,7 @@ async function bibliotheque(){
  };card.append(btn);list.append(card)
  }
  }
- select.onchange=async()=>{updateUpload();await refresh()};
+ select.onchange=async()=>{updateUpload();await refresh()};filter.onchange=refresh;
  upload.onsubmit=async e=>{
  e.preventDefault();if(!ownedIds.has(select.value)){uploadStatus.textContent="Seul le responsable peut ajouter des fichiers.";return}
  const chosen=file.files?.[0];if(!chosen){uploadStatus.textContent="Choisissez un fichier.";return}
@@ -136,7 +139,7 @@ async function bibliotheque(){
  const path=select.value+"/"+crypto.randomUUID()+"."+ext;
  const {error:storageErr}=await client.storage.from("bibliotheque-chorales").upload(path,chosen,{contentType:mime,upsert:false});
  if(storageErr){uploadStatus.textContent="Envoi impossible : "+storageErr.message;submit.disabled=false;return}
- const {error:saveErr}=await client.from("partitions").insert({chorale_id:select.value,auteur_id:currentUser.id,titre:title.value.trim(),compositeur:composer.value.trim()||null,chemin_fichier:path,est_publique:false});
+ const {error:saveErr}=await client.from("partitions").insert({chorale_id:select.value,auteur_id:currentUser.id,titre:title.value.trim(),compositeur:composer.value.trim()||null,pupitre:voice.value,chemin_fichier:path,est_publique:false});
  if(saveErr){uploadStatus.textContent="Fichier envoyé, mais inscription au catalogue impossible : "+saveErr.message;submit.disabled=false;return}
  upload.reset();uploadStatus.textContent="Document ajouté avec succès.";submit.disabled=false;await refresh()
  };

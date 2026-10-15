@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 6 : discussions par chorale et comptes choristes (activation à tester).</small></p>
+<p><small>Version 7 : discussions nominatives et changement de mot de passe.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -63,10 +63,10 @@ async function discussions(){
  const send=node("button","Envoyer le message");send.type="submit";const status=node("p","");status.setAttribute("role","status");
  const reload=node("button","Actualiser les messages");reload.type="button";
  form.append(label,input,send,status);content.append(form,reload);
- async function refresh(){messages.replaceChildren();const {data,error}=await client.from("discussions").select("contenu,auteur_id,cree_le").eq("chorale_id",select.value).order("cree_le",{ascending:true}).limit(100);
+ async function refresh(){messages.replaceChildren();const {data:people}=await client.rpc("noms_membres_chorale",{p_chorale_id:select.value});const names=new Map((people||[]).map(p=>[p.utilisateur_id,p.nom]));const {data,error}=await client.from("discussions").select("contenu,auteur_id,cree_le").eq("chorale_id",select.value).order("cree_le",{ascending:true}).limit(100);
  if(error){messages.append(node("p","Lecture refusée : "+error.message+". Vérifiez votre adhésion à cette chorale."));return}
  if(!data?.length){messages.append(node("p","Aucun message pour le moment."));return}
- for(const m of data){const item=document.createElement("p");item.style.cssText="padding:12px;border-bottom:1px solid #35577e;overflow-wrap:anywhere";const author=m.auteur_id===currentUser.id?"Vous":"Choriste";item.append(node("strong",author+" · "+new Date(m.cree_le).toLocaleString("fr-FR")),document.createElement("br"),node("span",m.contenu));messages.append(item)}}
+ for(const m of data){const item=document.createElement("p");item.style.cssText="padding:12px;border-bottom:1px solid #35577e;overflow-wrap:anywhere";const author=m.auteur_id===currentUser.id?"Vous":(names.get(m.auteur_id)||"Choriste");item.append(node("strong",author+" · "+new Date(m.cree_le).toLocaleString("fr-FR")),document.createElement("br"),node("span",m.contenu));messages.append(item)}}
  select.onchange=refresh;reload.onclick=refresh;
  form.onsubmit=async e=>{e.preventDefault();send.disabled=true;status.textContent="Envoi…";const {error}=await client.from("discussions").insert({chorale_id:select.value,auteur_id:currentUser.id,contenu:input.value.trim()});if(error)status.textContent="Envoi impossible : "+error.message;else{input.value="";status.textContent="Message envoyé.";await refresh()}send.disabled=false};
  await refresh();
@@ -104,7 +104,7 @@ async function chorales(){
 
 
 async function invitations(chorale){
- content.replaceChildren(node("h2","Choristes — "+chorale.nom),node("p","Préparez les fiches des choristes. Les comptes sont activables par le propriétaire. La connexion doit encore être testée."));
+ content.replaceChildren(node("h2","Choristes — "+chorale.nom),node("p","Préparez les fiches des choristes. Les comptes peuvent être activés par le propriétaire."));
  const back=node("button","← Retour aux chorales");back.onclick=()=>show("chorales");content.append(back);
  const form=document.createElement("form");
  function field(label,type,max){const l=node("label",label),i=document.createElement("input");i.type=type;i.maxLength=max;i.required=label.includes("*");form.append(l,i);return i}
@@ -115,7 +115,7 @@ async function invitations(chorale){
  const submit=node("button","Enregistrer la fiche");submit.type="submit";const status=node("p","");status.setAttribute("role","status");form.append(submit,status);content.append(form);
  const list=document.createElement("div");content.append(node("h2","Inscriptions préparées"),list);
  async function refresh(){const {data,error}=await client.from("invitations_choristes").select("id,nom,identifiant,pupitre,statut").eq("chorale_id",chorale.id).order("cree_le",{ascending:false});list.replaceChildren();if(error){list.append(node("p","Chargement impossible : "+error.message));return}if(!data?.length){list.append(node("p","Aucune inscription préparée."));return}for(const row of data){const box=document.createElement("p");box.append(node("strong",row.nom),node("span"," — "+row.identifiant+" — "+(row.pupitre||"Pupitre non précisé")+" — "+row.statut));if(row.statut==="en_attente"){const activate=node("button","Activer le compte");activate.type="button";activate.onclick=async()=>{const pwd=prompt("Mot de passe provisoire du choriste (10 caractères minimum) :");if(pwd===null)return;if(pwd.length<10){alert("Utilisez au moins 10 caractères.");return}activate.disabled=true;const {data,error}=await client.functions.invoke("activer-choriste",{body:{invitation_id:row.id,password:pwd}});if(error||data?.error){let detail=data?.error||error?.message||"Erreur";if(error?.context?.json){try{const body=await error.context.json();detail=body?.error||detail;if(body?.code)detail+=" ("+body.code+")"}catch(_){}}alert("Activation impossible : "+detail);activate.disabled=false;return}alert("Compte activé. Transmettez l’identifiant et le mot de passe provisoire au choriste de manière privée.");await refresh()};box.append(document.createElement("br"),activate)}list.append(box)}}
- form.onsubmit=async e=>{e.preventDefault();if(!form.reportValidity())return;submit.disabled=true;status.textContent="Enregistrement…";const {error}=await client.from("invitations_choristes").insert({chorale_id:chorale.id,nom:nom.value.trim(),identifiant:identifiant.value.trim(),pupitre:pupitre.value||null,telephone:telephone.value.trim()||null,cree_par:currentUser.id});status.textContent=error?"Erreur : "+(error.code==="23505"?"Identifiant déjà utilisé. Choisissez-en un autre.":error.message):"Fiche enregistrée. La connexion du choriste n'est pas encore disponible.";if(!error){form.reset();await refresh()}submit.disabled=false};
+ form.onsubmit=async e=>{e.preventDefault();if(!form.reportValidity())return;submit.disabled=true;status.textContent="Enregistrement…";const {error}=await client.from("invitations_choristes").insert({chorale_id:chorale.id,nom:nom.value.trim(),identifiant:identifiant.value.trim(),pupitre:pupitre.value||null,telephone:telephone.value.trim()||null,cree_par:currentUser.id});status.textContent=error?"Erreur : "+(error.code==="23505"?"Identifiant déjà utilisé. Choisissez-en un autre.":error.message):"Fiche enregistrée. Vous pouvez activer le compte.";if(!error){form.reset();await refresh()}submit.disabled=false};
  await refresh();
 }
 
@@ -138,7 +138,12 @@ function profile(){
  const {error}=await client.from("profils").upsert({id:currentUser.id,nom:name.value.trim(),telephone:phone.value.trim()},{onConflict:"id"});
  status.textContent=error?"Erreur : "+error.message:"Profil enregistré.";save.disabled=false;
  };
- const b=node("button","Se déconnecter");b.onclick=async()=>{const {error}=await client.auth.signOut();if(error){status.textContent=error.message;return}currentUser=null;show("profil")};content.append(b);return
+ const pwdForm=document.createElement("form");pwdForm.append(node("h2","Changer mon mot de passe"));
+const pwdLabel=node("label","Nouveau mot de passe (10 caractères minimum)"),pwdInput=document.createElement("input");pwdInput.type="password";pwdInput.required=true;pwdInput.minLength=10;pwdInput.maxLength=128;pwdInput.autocomplete="new-password";
+const confirmLabel=node("label","Confirmer le nouveau mot de passe"),confirmInput=document.createElement("input");confirmInput.type="password";confirmInput.required=true;confirmInput.minLength=10;confirmInput.autocomplete="new-password";
+const change=node("button","Modifier mon mot de passe");change.type="submit";const pwdStatus=node("p","");pwdStatus.setAttribute("role","status");pwdForm.append(pwdLabel,pwdInput,confirmLabel,confirmInput,change,pwdStatus);content.append(pwdForm);
+pwdForm.onsubmit=async e=>{e.preventDefault();if(pwdInput.value!==confirmInput.value){pwdStatus.textContent="Les deux mots de passe sont différents.";return}change.disabled=true;pwdStatus.textContent="Modification…";const {error}=await client.auth.updateUser({password:pwdInput.value});pwdStatus.textContent=error?"Modification impossible : "+error.message:"Mot de passe modifié.";if(!error)pwdForm.reset();change.disabled=false};
+const b=node("button","Se déconnecter");b.onclick=async()=>{const {error}=await client.auth.signOut();if(error){status.textContent=error.message;return}currentUser=null;show("profil")};content.append(b);return
  }
  const form=document.createElement("form");
  const labelEmail=node("label","Adresse e-mail ou identifiant de choriste");labelEmail.htmlFor="email";

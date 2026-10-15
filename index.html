@@ -116,12 +116,13 @@ async function financesChorale(){
  async function load(){
  treasBox.replaceChildren();entryBox.replaceChildren();summary.replaceChildren(node("p","Chargement de la caisse…"));
  const choir=select.value,isOwner=ownerIds.has(choir);
- const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr}]=await Promise.all([
+ let loaded; try { loaded=await Promise.race([Promise.all([
  client.from("membres").select("utilisateur_id").eq("chorale_id",choir),
  client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
  client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
  client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir)
- ]);
+ ]),new Promise((_,reject)=>setTimeout(()=>reject(Error("Délai dépassé")),12000))]); } catch(e) {summary.replaceChildren(node("p","Erreur de chargement : "+e.message));const retry=node("button","Réessayer");retry.onclick=load;summary.append(retry);return;}
+ const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr}]=loaded;
  if(peopleErr||nameErr||entryErr||treasErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr).message));return}
  members=(people||[]).map(p=>p.utilisateur_id);memberNames=new Map((names||[]).map(n=>[n.utilisateur_id,n.nom]));transactions=entries||[];
  if(isOwner){

@@ -8,9 +8,9 @@
 <main class="wrap"><nav class="tabs" aria-label="Navigation">
 <button data-page="accueil">🏠 Accueil</button><button data-page="discussions">💬 Discussions</button>
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
-<button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
+<button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 18 : tableau de bord et rapports de présence.</small></p>
+<p><small>Version 19 : cotisations, caisse et gestion des trésoriers.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -39,6 +39,7 @@ function show(page){
  if(page==="bibliotheque"){bibliotheque();return}
  if(page==="repetitions"){repetitions();return}
  if(page==="tableau"){tableauDeBord();return}
+ if(page==="finances"){financesChorale();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
@@ -88,6 +89,110 @@ async function discussions(){
 
 
 
+
+
+async function financesChorale(){
+ content.append(node("h2","💰 Finances de la chorale"));
+ if(!currentUser){content.append(node("p","Connectez-vous pour accéder à cet espace."));return}
+ const info=node("p","Chargement des autorisations…");info.setAttribute("role","status");content.append(info);
+ const [{data:owned,error:ownErr},{data:assigned,error:roleErr}]=await Promise.all([
+ client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id),
+ client.from("stella_tresoriers").select("chorale_id").eq("utilisateur_id",currentUser.id)
+ ]);
+ if(ownErr||roleErr){info.textContent="Erreur : "+(ownErr||roleErr).message;return}
+ const ownerIds=new Set((owned||[]).map(c=>c.id));
+ const ids=[...new Set([...(owned||[]).map(c=>c.id),...(assigned||[]).map(t=>t.chorale_id)])];
+ if(!ids.length){info.textContent="Accès réservé au responsable et aux trésoriers désignés.";return}
+ const {data:choirs,error:choirErr}=await client.from("chorales").select("id,nom").in("id",ids);
+ if(choirErr){info.textContent="Erreur : "+choirErr.message;return}
+ const selectLabel=node("label","Chorale"),select=document.createElement("select");select.style.cssText="width:100%;padding:12px;color:#142946";
+ for(const c of (choirs||[])){const o=document.createElement("option");o.value=c.id;o.textContent=c.nom;select.append(o)}
+ content.append(selectLabel,select);
+ const treasBox=document.createElement("div"),entryBox=document.createElement("div"),summary=document.createElement("div");
+ content.append(treasBox,entryBox,summary);
+ const money=n=>Number(n||0).toLocaleString("fr-FR")+" FCFA";
+ const today=()=>new Date().toLocaleDateString("en-CA");
+ let members=[],memberNames=new Map(),transactions=[];
+ async function load(){
+ treasBox.replaceChildren();entryBox.replaceChildren();summary.replaceChildren(node("p","Chargement de la caisse…"));
+ const choir=select.value,isOwner=ownerIds.has(choir);
+ const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr}]=await Promise.all([
+ client.from("membres").select("utilisateur_id").eq("chorale_id",choir),
+ client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
+ client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
+ client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir)
+ ]);
+ if(peopleErr||nameErr||entryErr||treasErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr).message));return}
+ members=(people||[]).map(p=>p.utilisateur_id);memberNames=new Map((names||[]).map(n=>[n.utilisateur_id,n.nom]));transactions=entries||[];
+ if(isOwner){
+ treasBox.append(node("h3","🔐 Désigner un trésorier"));
+ const p=node("p","Seul le responsable peut attribuer ou retirer le rôle. Le trésorier peut consulter et enregistrer les opérations, sans les supprimer.");treasBox.append(p);
+ const treasSet=new Set((treas||[]).map(t=>t.utilisateur_id));
+ for(const uid of members){
+ const row=document.createElement("div");row.style.cssText="padding:8px 0;border-bottom:1px solid #35577e";
+ const name=memberNames.get(uid)||"Choriste";row.append(node("span",name+" — "+(treasSet.has(uid)?"Trésorier":"Choriste")));
+ const btn=node("button",treasSet.has(uid)?"Retirer le rôle":"Nommer trésorier");btn.type="button";
+ btn.onclick=async()=>{if(!confirm((treasSet.has(uid)?"Retirer le rôle de trésorier à ":"Nommer trésorier : ")+name+" ?"))return;btn.disabled=true;
+ const {error}=treasSet.has(uid)?await client.from("stella_tresoriers").delete().eq("chorale_id",choir).eq("utilisateur_id",uid):await client.from("stella_tresoriers").insert({chorale_id:choir,utilisateur_id:uid,attribue_par:currentUser.id});
+ if(error){alert("Impossible : "+error.message);btn.disabled=false;return}await load()};
+ row.append(btn);treasBox.append(row)
+ }
+ }
+ const form=document.createElement("form");form.append(node("h3","➕ Enregistrer une opération"));
+ function field(label,type){form.append(node("label",label));const x=document.createElement("input");x.type=type;x.required=true;form.append(x);return x}
+ const kindLabel=node("label","Type d'opération"),kind=document.createElement("select");kind.style.cssText="width:100%;padding:12px;color:#142946";
+ for(const [value,label] of [["cotisation","Cotisation"],["don","Don"],["autre_recette","Autre recette"],["depense","Dépense"]]){const o=document.createElement("option");o.value=value;o.textContent=label;kind.append(o)}
+ form.append(kindLabel,kind);
+ const personLabel=node("label","Choriste concerné"),person=document.createElement("select");person.style.cssText=kind.style.cssText;
+ for(const uid of members){const o=document.createElement("option");o.value=uid;o.textContent=memberNames.get(uid)||"Choriste";person.append(o)}
+ form.append(personLabel,person);
+ const title=field("Libellé","text");title.maxLength=200;
+ const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
+ const date=field("Date de l'opération","date");date.value=today();
+ const noteLabel=node("label","Commentaire (facultatif)"),note=document.createElement("textarea");note.maxLength=1000;note.rows=2;note.style.cssText="width:100%;padding:12px";form.append(noteLabel,note);
+ const save=node("button","Enregistrer dans la caisse");save.type="submit",feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
+ function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation"}
+ kind.onchange=togglePerson;togglePerson();
+ form.onsubmit=async e=>{e.preventDefault();const val=Number(amount.value);if(!Number.isSafeInteger(val)||val<1||val>1000000000){feedback.textContent="Montant invalide.";return}
+ if(kind.value==="cotisation"&&!person.value){feedback.textContent="Choisis un choriste.";return}
+ if(!confirm("Confirmer cette opération de "+money(val)+" ?"))return;
+ save.disabled=true;feedback.textContent="Enregistrement…";
+ const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),cree_par:currentUser.id});
+ if(error){feedback.textContent="Erreur : "+error.message;save.disabled=false;return}
+ await load();save.disabled=false;entryBox.prepend(node("p","✅ Opération enregistrée."));
+ };entryBox.append(form);
+ const incomes=transactions.filter(t=>t.type!=="depense").reduce((a,t)=>a+Number(t.montant),0);
+ const expenses=transactions.filter(t=>t.type==="depense").reduce((a,t)=>a+Number(t.montant),0);
+ const dues=transactions.filter(t=>t.type==="cotisation").reduce((a,t)=>a+Number(t.montant),0);
+ summary.replaceChildren(node("h2","📊 Situation de la caisse"),node("p","💵 Total des recettes : "+money(incomes)),node("p","🎼 Cotisations encaissées : "+money(dues)),node("p","💸 Dépenses : "+money(expenses)),node("h3","Solde calculé : "+money(incomes-expenses)));
+ summary.append(node("p","Solde calculé à partir des opérations enregistrées. Il ne remplace pas un rapprochement avec les espèces ou le compte bancaire."));
+ const monthLabel=node("label","Filtrer les opérations par mois"),month=document.createElement("input");month.type="month";month.value=today().slice(0,7);
+ const allLabel=node("label","Afficher toutes les opérations"),all=document.createElement("input");all.type="checkbox";all.style.width="auto";all.checked=true;
+ const items=document.createElement("div"),exportBtn=node("button","📥 Exporter les opérations (CSV)");exportBtn.type="button";
+ summary.append(node("h3","📒 Journal des opérations"),monthLabel,month,allLabel,all,exportBtn,items);
+ const labels={cotisation:"Cotisation",don:"Don",autre_recette:"Autre recette",depense:"Dépense"};
+ function filtered(){return transactions.filter(t=>all.checked||t.date_operation.slice(0,7)===month.value)}
+ function draw(){items.replaceChildren();const arr=filtered();if(!arr.length)items.append(node("p","Aucune opération pour cette période."));
+ for(const t of arr){const row=document.createElement("div");row.style.cssText="padding:12px 0;border-bottom:1px solid #35577e";
+ row.append(node("strong",(t.type==="depense"?"🔴 ":"🟢 ")+labels[t.type]+" : "+money(t.montant)),node("p",t.date_operation+" — "+t.libelle));
+ if(t.membre_id)row.append(node("p","Choriste : "+(memberNames.get(t.membre_id)||"Non identifié")));
+ if(t.commentaire)row.append(node("small",t.commentaire));
+ if(isOwner){const del=node("button","🗑️ Supprimer cette écriture");del.type="button";
+ del.onclick=async()=>{if(!confirm("Supprimer définitivement cette écriture financière ? Cette action ne peut pas être annulée."))return;
+ del.disabled=true;const {error}=await client.from("stella_finances").delete().eq("id",t.id).eq("chorale_id",choir);
+ if(error){alert("Suppression impossible : "+error.message);del.disabled=false;return}await load()};row.append(del)}
+ items.append(row)
+ }}
+ month.onchange=draw;all.onchange=()=>{month.disabled=all.checked;draw()};month.disabled=true;draw();
+ exportBtn.onclick=()=>{
+ const rows=[["Date","Type","Libellé","Montant FCFA","Choriste","Commentaire"],...filtered().map(t=>[t.date_operation,labels[t.type],t.libelle,t.montant,memberNames.get(t.membre_id)||"",t.commentaire])];
+ const csv=rows.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
+ const url=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));
+ const a=document.createElement("a");a.href=url;a.download="caisse_stella_"+(all.checked?"tous":month.value)+".csv";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)
+ };
+ }
+ select.onchange=load;info.textContent="Accès autorisé : responsable ou trésorier désigné. Les autres choristes n'ont pas accès aux finances.";await load()
+}
 
 async function tableauDeBord(){
  content.append(node("h2","📊 Tableau de bord administratif"));

@@ -112,19 +112,20 @@ async function financesChorale(){
  content.append(treasBox,entryBox,summary);
  const money=n=>Number(n||0).toLocaleString("fr-FR")+" FCFA";
  const today=()=>new Date().toLocaleDateString("en-CA");
- let members=[],memberNames=new Map(),transactions=[];
+ let members=[],memberNames=new Map(),transactions=[],postes=[];
  async function load(){
  treasBox.replaceChildren();entryBox.replaceChildren();summary.replaceChildren(node("p","Chargement de la caisse…"));
  const choir=select.value,isOwner=ownerIds.has(choir);
  let loaded; try { loaded=await Promise.race([Promise.all([
  client.from("membres").select("utilisateur_id").eq("chorale_id",choir),
  client.rpc("noms_membres_chorale",{p_chorale_id:choir}),
- client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
- client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir)
+ client.from("stella_finances").select("id,type,libelle,montant,membre_id,date_operation,commentaire,poste_depense_id").eq("chorale_id",choir).order("date_operation",{ascending:false}).order("cree_le",{ascending:false}).limit(1000),
+ client.from("stella_tresoriers").select("utilisateur_id").eq("chorale_id",choir),
+ client.from("stella_postes_depense").select("id,nom").eq("chorale_id",choir).order("nom")
  ]),new Promise((_,reject)=>setTimeout(()=>reject(Error("Délai dépassé")),12000))]); } catch(e) {summary.replaceChildren(node("p","Erreur de chargement : "+e.message));const retry=node("button","Réessayer");retry.onclick=load;summary.append(retry);return;}
- const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr}]=loaded;
- if(peopleErr||nameErr||entryErr||treasErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr).message));return}
- members=(people||[]).map(p=>p.utilisateur_id);memberNames=new Map((names||[]).map(n=>[n.utilisateur_id,n.nom]));transactions=entries||[];
+ const [{data:people,error:peopleErr},{data:names,error:nameErr},{data:entries,error:entryErr},{data:treas,error:treasErr},{data:categories,error:categoryErr}]=loaded;
+ if(peopleErr||nameErr||entryErr||treasErr||categoryErr){summary.replaceChildren(node("p","Erreur : "+(peopleErr||nameErr||entryErr||treasErr||categoryErr).message));return}
+ members=(people||[]).map(p=>p.utilisateur_id);memberNames=new Map((names||[]).map(n=>[n.utilisateur_id,n.nom]));transactions=entries||[];postes=categories||[];
  if(isOwner){
  treasBox.append(node("h3","🔐 Désigner un trésorier"));
  const p=node("p","Seul le responsable peut attribuer ou retirer le rôle. Le trésorier peut consulter et enregistrer les opérations, sans les supprimer.");treasBox.append(p);
@@ -139,6 +140,13 @@ async function financesChorale(){
  row.append(btn);treasBox.append(row)
  }
  }
+ const catTitle=node("h3","📁 Postes de dépense");entryBox.append(catTitle,node("p","La trésorière peut créer plusieurs postes : transport, matériel, entretien, liturgie, etc."));
+ const catForm=document.createElement("form"),catInput=document.createElement("input"),catBtn=node("button","➕ Créer un poste"),catStatus=node("p","");
+ catInput.type="text";catInput.placeholder="Nom du poste (ex. Transport)";catInput.maxLength=100;catInput.required=true;catBtn.type="submit";catForm.append(catInput,catBtn,catStatus);entryBox.append(catForm);
+ const catList=node("p",postes.length?"Postes existants : "+postes.map(p=>p.nom).join(" • "):"Aucun poste créé.");entryBox.append(catList);
+ catForm.onsubmit=async e=>{e.preventDefault();const nom=catInput.value.trim();if(nom.length<2)return;catBtn.disabled=true;
+ const {error}=await client.from("stella_postes_depense").insert({chorale_id:choir,nom,cree_par:currentUser.id});
+ if(error){catStatus.textContent="Impossible de créer le poste : "+error.message;catBtn.disabled=false;return}await load();};
  const form=document.createElement("form");form.append(node("h3","➕ Enregistrer une opération"));
  function field(label,type){form.append(node("label",label));const x=document.createElement("input");x.type=type;x.required=true;form.append(x);return x}
  const kindLabel=node("label","Type d'opération"),kind=document.createElement("select");kind.style.cssText="width:100%;padding:12px;color:#142946";
@@ -147,18 +155,23 @@ async function financesChorale(){
  const personLabel=node("label","Choriste concerné"),person=document.createElement("select");person.style.cssText=kind.style.cssText;
  for(const uid of members){const o=document.createElement("option");o.value=uid;o.textContent=memberNames.get(uid)||"Choriste";person.append(o)}
  form.append(personLabel,person);
+ const posteLabel=node("label","Poste de dépense"),posteSelect=document.createElement("select");posteSelect.style.cssText=kind.style.cssText;
+ const emptyPoste=document.createElement("option");emptyPoste.value="";emptyPoste.textContent="Choisir un poste";posteSelect.append(emptyPoste);
+ for(const p of postes){const opt=document.createElement("option");opt.value=p.id;opt.textContent=p.nom;posteSelect.append(opt)}
+ form.append(posteLabel,posteSelect);
  const title=field("Libellé","text");title.maxLength=200;
  const amount=field("Montant (FCFA)","number");amount.min="1";amount.max="1000000000";amount.step="1";
  const date=field("Date de l'opération","date");date.value=today();
  const noteLabel=node("label","Commentaire (facultatif)"),note=document.createElement("textarea");note.maxLength=1000;note.rows=2;note.style.cssText="width:100%;padding:12px";form.append(noteLabel,note);
  const save=node("button","Enregistrer dans la caisse");save.type="submit";const feedback=node("p","");feedback.setAttribute("role","status");form.append(save,feedback);
- function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation"}
+ function togglePerson(){personLabel.hidden=person.hidden=kind.value!=="cotisation";person.required=kind.value==="cotisation";posteLabel.hidden=posteSelect.hidden=kind.value!=="depense";posteSelect.required=kind.value==="depense"}
  kind.onchange=togglePerson;togglePerson();
  form.onsubmit=async e=>{e.preventDefault();const val=Number(amount.value);if(!Number.isSafeInteger(val)||val<1||val>1000000000){feedback.textContent="Montant invalide.";return}
  if(kind.value==="cotisation"&&!person.value){feedback.textContent="Choisis un choriste.";return}
+ if(kind.value==="depense"&&!posteSelect.value){feedback.textContent="Crée ou choisis un poste de dépense.";return}
  if(!confirm("Confirmer cette opération de "+money(val)+" ?"))return;
  save.disabled=true;feedback.textContent="Enregistrement…";
- const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),cree_par:currentUser.id});
+ const {error}=await client.from("stella_finances").insert({chorale_id:choir,type:kind.value,libelle:title.value.trim(),montant:val,membre_id:kind.value==="cotisation"?person.value:null,date_operation:date.value,commentaire:note.value.trim(),poste_depense_id:kind.value==="depense"?posteSelect.value:null,cree_par:currentUser.id});
  if(error){feedback.textContent="Erreur : "+error.message;save.disabled=false;return}
  await load();save.disabled=false;entryBox.prepend(node("p","✅ Opération enregistrée."));
  };entryBox.append(form);
@@ -177,6 +190,7 @@ async function financesChorale(){
  for(const t of arr){const row=document.createElement("div");row.style.cssText="padding:12px 0;border-bottom:1px solid #35577e";
  row.append(node("strong",(t.type==="depense"?"🔴 ":"🟢 ")+labels[t.type]+" : "+money(t.montant)),node("p",t.date_operation+" — "+t.libelle));
  if(t.membre_id)row.append(node("p","Choriste : "+(memberNames.get(t.membre_id)||"Non identifié")));
+ if(t.poste_depense_id)row.append(node("p","Poste : "+(postes.find(p=>p.id===t.poste_depense_id)?.nom||"Poste non identifié")));
  if(t.commentaire)row.append(node("small",t.commentaire));
  if(isOwner){const del=node("button","🗑️ Supprimer cette écriture");del.type="button";
  del.onclick=async()=>{if(!confirm("Supprimer définitivement cette écriture financière ? Cette action ne peut pas être annulée."))return;
@@ -186,7 +200,7 @@ async function financesChorale(){
  }}
  month.onchange=draw;all.onchange=()=>{month.disabled=all.checked;draw()};month.disabled=true;draw();
  exportBtn.onclick=()=>{
- const rows=[["Date","Type","Libellé","Montant FCFA","Choriste","Commentaire"],...filtered().map(t=>[t.date_operation,labels[t.type],t.libelle,t.montant,memberNames.get(t.membre_id)||"",t.commentaire])];
+ const rows=[["Date","Type","Poste de dépense","Libellé","Montant FCFA","Choriste","Commentaire"],...filtered().map(t=>[t.date_operation,labels[t.type],postes.find(p=>p.id===t.poste_depense_id)?.nom||"",t.libelle,t.montant,memberNames.get(t.membre_id)||"",t.commentaire])];
  const csv=rows.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
  const url=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));
  const a=document.createElement("a");a.href=url;a.download="caisse_stella_"+(all.checked?"tous":month.value)+".csv";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)

@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 29 : aperçu automatique des partitions déjà présentes dans la bibliothèque.</small></p>
+<p><small>Version 30 : répétiteur simplifié, outils techniques facultatifs.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -601,62 +601,53 @@ function musicXMLPiano(){
 }
 
 async function repetiteurSATB(selectedPartition=null){
- content.append(node("h2","🎧 Répétiteur SATB"));
- if(selectedPartition){
- const chosenBox=document.createElement("section");chosenBox.className="card";chosenBox.append(node("h3","🎼 Chant sélectionné : "+selectedPartition.titre),node("p","Cette partition provient directement de votre bibliothèque. Il n'est pas nécessaire de l'importer à nouveau."));
- const view=node("button","📄 Voir la partition");view.type="button";view.onclick=async()=>{view.disabled=true;const {data,error}=await client.storage.from("bibliotheque-chorales").createSignedUrl(selectedPartition.chemin_fichier,300);if(error||!data?.signedUrl)alert("Ouverture impossible : "+(error?.message||"Fichier indisponible"));else window.open(data.signedUrl,"_blank","noopener,noreferrer");view.disabled=false};chosenBox.append(view);
- chosenBox.append(node("p","⏳ La lecture automatique des notes PDF ou des photos n'est pas encore disponible. Nous préparons cette fonction. Vous pouvez déjà écouter les enregistrements SATB lorsqu'ils existent."));
- content.append(chosenBox);
- }
- content.append(preparationPartitionSATB(selectedPartition),musicXMLPiano(),node("p","Choisissez votre pupitre. Pour écouter une voix isolée, un fichier audio correspondant doit être disponible."));
- if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux enregistrements de votre chorale."));return}
- const status=node("p","Recherche des chorales…");status.setAttribute("role","status");content.append(status);
+ content.append(node("h2","🎧 Répéter mon chant"));
+ if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux chants."));return}
+ const state=node("p","Chargement…");state.setAttribute("role","status");content.append(state);
  try{
  const [{data:mem,error:me},{data:owned,error:oe}]=await Promise.all([client.from("membres").select("chorale_id").eq("utilisateur_id",currentUser.id),client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id)]);
  if(me||oe)throw me||oe;
  const ids=[...new Set([...(mem||[]).map(x=>x.chorale_id),...(owned||[]).map(x=>x.id)])];
- if(!ids.length){status.textContent="Vous ne faites partie d'aucune chorale.";return}
- const {data:choirs,error:ce}=await client.from("chorales").select("id,nom").in("id",ids);if(ce)throw ce;
- status.textContent="Choisissez une chorale et un enregistrement audio.";
+ if(!ids.length){state.textContent="Aucune chorale associée à votre compte.";return}
  const choir=document.createElement("select");choir.style.cssText="width:100%;padding:12px;color:#142946";
- for(const c of choirs||[]){const o=document.createElement("option");o.value=c.id;o.textContent=c.nom;if(selectedPartition?.chorale_id===c.id)o.selected=true;choir.append(o)}
- content.append(node("label","Chorale"),choir);
- const voices=[["soprano","🎵 Soprano"],["alto","🎵 Alto"],["tenor","🎵 Ténor"],["basse","🎵 Basse"],["tous","🎶 Ensemble"]];
+ const {data:choirs,error:ce}=await client.from("chorales").select("id,nom").in("id",ids);if(ce)throw ce;
+ for(const c of choirs||[]){const o=document.createElement("option");o.value=c.id;o.textContent=c.nom;if(c.id===selectedPartition?.chorale_id)o.selected=true;choir.append(o)}
+ const song=document.createElement("select");song.style.cssText=choir.style.cssText;
+ const voices=[["soprano","Soprano"],["alto","Alto"],["tenor","Ténor"],["basse","Basse"]];
  const voice=document.createElement("select");voice.style.cssText=choir.style.cssText;
  for(const [v,label] of voices){const o=document.createElement("option");o.value=v;o.textContent=label;voice.append(o)}
- content.append(node("label","Voix à travailler"),voice);
- const recording=document.createElement("select");recording.style.cssText=choir.style.cssText;content.append(node("label","Enregistrement audio disponible"),recording);
- const player=document.createElement("audio");player.controls=true;player.preload="none";player.style.cssText="width:100%;margin:18px 0";
- const speed=document.createElement("select");speed.style.cssText=choir.style.cssText;
- for(const [v,label] of [["0.5","Très lent (0,5×)"],["0.75","Lent (0,75×)"],["1","Normal (1×)"],["1.25","Rapide (1,25×)"]]){const o=document.createElement("option");o.value=v;o.textContent=label;speed.append(o)}speed.value="1";
- const rewind=node("button","⏪ Reculer de 10 secondes"),repeat=node("button","🔁 Répéter le passage"),markA=node("button","📍 Début du passage"),markB=node("button","📍 Fin du passage"),clear=node("button","✖ Effacer la boucle");
- for(const b of [rewind,repeat,markA,markB,clear])b.type="button";
- const info=node("p",""),notes=node("p","La vitesse lente facilite l'apprentissage. Les enregistrements restent dans la bibliothèque de votre chorale.");info.setAttribute("role","status");
- content.append(player,node("label","Vitesse de lecture"),speed,rewind,markA,markB,repeat,clear,info,notes);
- let tracks=[],a=null,b=null,loop=false,request=0;
- function resetPlayer(){player.pause();player.removeAttribute("src");player.load();a=b=null;loop=false;repeat.textContent="🔁 Répéter le passage"}
- async function loadTracks(){
- const my=++request;resetPlayer();recording.replaceChildren();info.textContent="Chargement des fichiers audio…";
- const {data,error}=await client.from("partitions").select("id,titre,chemin_fichier,pupitre").eq("chorale_id",choir.value).order("titre").limit(200);
- if(my!==request)return;if(error){info.textContent="Erreur : "+error.message;return}
- tracks=(data||[]).filter(d=>/\\.(mp3|m4a|wav|ogg|webm)$/i.test(d.chemin_fichier)&&((d.pupitre||"tous")===voice.value)&&(!selectedPartition||d.titre.trim().toLocaleLowerCase()===selectedPartition.titre.trim().toLocaleLowerCase()));
- for(const d of tracks){const o=document.createElement("option");o.value=d.id;o.textContent=d.titre;recording.append(o)}
- info.textContent=tracks.length?tracks.length+" enregistrement(s) disponible(s). Appuyez sur Charger.":selectedPartition?"Aucun audio "+voice.value+" associé au chant « "+selectedPartition.titre+" ». La lecture automatique de sa partition reste à développer.":"Aucun fichier audio pour ce pupitre. Le responsable peut en ajouter dans Bibliothèque en choisissant le pupitre.";
+ const play=node("button","▶️ Écouter ma voix"),view=node("button","📄 Voir ma partition"),player=document.createElement("audio");
+ play.type=view.type="button";player.controls=true;player.style.cssText="width:100%;margin:12px 0";player.hidden=true;
+ const hint=node("p","Choisissez un chant et votre voix.");hint.setAttribute("role","status");
+ const advanced=document.createElement("details"),summary=document.createElement("summary");summary.textContent="⚙️ Outils avancés (facultatif)";
+ advanced.className="card";advanced.append(summary,node("p","Pour les responsables : fichiers MusicXML, PDF et enregistrements audio."),preparationPartitionSATB(selectedPartition),musicXMLPiano());
+ const audioTools=document.createElement("div");advanced.append(audioTools);
+ content.append(node("label","Chorale"),choir,node("label","Mon chant"),song,view,node("label","Ma voix"),voice,play,player,hint,advanced);
+ let docs=[],request=0,token=0;
+ async function signed(path){const {data,error}=await client.storage.from("bibliotheque-chorales").createSignedUrl(path,600);if(error||!data?.signedUrl)throw Error(error?.message||"Fichier indisponible");return data.signedUrl}
+ async function loadSongs(){
+ const my=++request;player.pause();player.hidden=true;song.replaceChildren();hint.textContent="Chargement des chants…";
+ const {data,error}=await client.from("partitions").select("id,titre,chemin_fichier,pupitre").eq("chorale_id",choir.value).order("titre").limit(300);
+ if(my!==request)return;if(error)throw error;
+ docs=data||[];const names=[...new Set(docs.map(d=>d.titre))];
+ for(const name of names){const o=document.createElement("option");o.value=name;o.textContent=name;if(name===selectedPartition?.titre)o.selected=true;song.append(o)}
+ if(!names.length){hint.textContent="Aucun chant dans cette bibliothèque.";play.disabled=view.disabled=true;return}
+ play.disabled=view.disabled=false;hint.textContent="Choisissez votre voix, puis appuyez sur Écouter.";
  }
- const loadBtn=node("button","▶️ Charger cet enregistrement");loadBtn.type="button";content.insertBefore(loadBtn,player);
- loadBtn.onclick=async()=>{const d=tracks.find(t=>t.id===recording.value);if(!d){info.textContent="Choisissez un enregistrement.";return}loadBtn.disabled=true;resetPlayer();
- const {data,error}=await client.storage.from("bibliotheque-chorales").createSignedUrl(d.chemin_fichier,3600);
- if(error||!data?.signedUrl){info.textContent="Impossible de charger l'audio : "+(error?.message||"Fichier indisponible")}else{player.src=data.signedUrl;player.playbackRate=Number(speed.value);info.textContent="Prêt : "+d.titre+" — "+(voices.find(v=>v[0]===voice.value)?.[1]||"");}
- loadBtn.disabled=false};
- speed.onchange=()=>{player.playbackRate=Number(speed.value)};
- rewind.onclick=()=>{if(Number.isFinite(player.duration))player.currentTime=Math.max(0,player.currentTime-10)};
- markA.onclick=()=>{if(!player.src)return; a=player.currentTime;info.textContent="Début du passage : "+Math.floor(a)+" s"};
- markB.onclick=()=>{if(!player.src)return;b=player.currentTime;info.textContent="Fin du passage : "+Math.floor(b)+" s"};
- repeat.onclick=()=>{if(a===null||b===null||b<=a+0.3){info.textContent="Placez d'abord le début puis la fin du passage.";return}loop=!loop;repeat.textContent=loop?"⏹ Arrêter la boucle":"🔁 Répéter le passage";if(loop)player.currentTime=a};
- clear.onclick=()=>{a=b=null;loop=false;repeat.textContent="🔁 Répéter le passage";info.textContent="Boucle effacée."};
- player.addEventListener("timeupdate",()=>{if(loop&&a!==null&&b!==null&&player.currentTime>=b)player.currentTime=a});
- choir.onchange=loadTracks;voice.onchange=loadTracks;content.append(clavierMusical());await loadTracks();
- }catch(e){status.textContent="Erreur : "+(e.message||"Chargement impossible")}
+ function selectedDoc(){return docs.find(d=>d.titre===song.value&&!/\\.(mp3|m4a|wav|ogg|webm)$/i.test(d.chemin_fichier))||docs.find(d=>d.titre===song.value)}
+ view.onclick=async()=>{const d=selectedDoc();if(!d)return;view.disabled=true;try{window.open(await signed(d.chemin_fichier),"_blank","noopener,noreferrer")}catch(e){hint.textContent="Impossible d'ouvrir la partition : "+e.message}finally{view.disabled=false}};
+ play.onclick=async()=>{
+ const t=++token;player.pause();player.hidden=true;const selected=docs.filter(d=>d.titre===song.value);
+ const track=selected.find(d=>/\\.(mp3|m4a|wav|ogg|webm)$/i.test(d.chemin_fichier)&&d.pupitre===voice.value);
+ if(!track){hint.textContent="La voix "+voice.options[voice.selectedIndex].text+" de ce chant n'est pas encore disponible. Le piano MusicXML reste accessible dans Outils avancés.";return}
+ play.disabled=true;hint.textContent="Chargement de votre voix…";
+ try{const src=await signed(track.chemin_fichier);if(t!==token)return;player.src=src;player.hidden=false;hint.textContent="Votre voix est prête. Appuyez sur lecture.";await player.play().catch(()=>{})}catch(e){hint.textContent="Audio indisponible : "+e.message}finally{play.disabled=false}
+ };
+ choir.onchange=()=>{selectedPartition=null;loadSongs().catch(e=>hint.textContent=e.message)};
+ song.onchange=()=>{token++;player.pause();player.hidden=true;hint.textContent="Choisissez votre voix, puis appuyez sur Écouter."};
+ voice.onchange=()=>{token++;player.pause();player.hidden=true};
+ await loadSongs();state.remove();
+ }catch(e){state.textContent="Impossible de charger le répétiteur : "+(e.message||e)}
 }
 
 async function bibliotheque(){

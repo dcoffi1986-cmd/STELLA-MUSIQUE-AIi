@@ -109,7 +109,8 @@ async function bibliotheque(){
  const submit=node("button","Ajouter à la bibliothèque");submit.type="submit";const uploadStatus=node("p","");uploadStatus.setAttribute("role","status");
  upload.append(titleLabel,title,composerLabel,composer,voiceLabel,voice,fileLabel,file,submit,uploadStatus);content.append(upload);
  const filterLabel=node("label","Filtrer les chants par pupitre"),filter=document.createElement("select");filter.style.cssText="width:100%;padding:12px;margin:8px 0 16px;color:#142946";for(const [value,label] of [["all","Tous les chants"],["tous","Tous les pupitres"],["soprano","Soprano"],["alto","Alto"],["tenor","Ténor"],["basse","Basse"]]){const option=document.createElement("option");option.value=value;option.textContent=label;filter.append(option)};
- const list=document.createElement("div");content.append(node("h2","Documents de la chorale"),filterLabel,filter,list);
+ const searchLabel=node("label","🔎 Rechercher un chant par titre"),search=document.createElement("input");search.type="search";search.placeholder="Ex. : Proche est le Seigneur";search.autocomplete="off";
+ const list=document.createElement("div");content.append(node("h2","Documents de la chorale"),searchLabel,search,filterLabel,filter,list);
  const allowed=new Set(["application/pdf","image/jpeg","image/png","audio/mpeg","audio/mp4","audio/x-m4a","audio/wav","audio/x-wav","audio/ogg","audio/webm"]);
  const extensions={pdf:"application/pdf",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg",webm:"audio/webm"};
  function updateUpload(){upload.hidden=!ownedIds.has(select.value)}
@@ -121,11 +122,13 @@ async function bibliotheque(){
  if(!data?.length){list.append(node("p","Aucun document pour le moment."));return}
  for(const doc of data){
  if(filter.value!=="all" && (doc.pupitre||"tous")!==filter.value)continue;
+ if(!doc.titre.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()))continue;
  const card=document.createElement("div");card.className="card";card.append(node("h3",doc.titre),node("p","🎤 "+(voiceOptions.find(v=>v[0]===(doc.pupitre||"tous"))?.[1]||"Tous les pupitres")),node("p",doc.compositeur||"Compositeur non précisé"));
- const btn=node("button","📄 Ouvrir / écouter");btn.type="button";btn.onclick=async()=>{
+ const isAudio=/\\.(mp3|m4a|wav|ogg|webm)$/i.test(doc.chemin_fichier);
+ const btn=node("button",isAudio?"🎵 Écouter":"📄 Ouvrir la partition");btn.type="button";btn.onclick=async()=>{
  btn.disabled=true;const {data:link,error:linkErr}=await client.storage.from("bibliotheque-chorales").createSignedUrl(doc.chemin_fichier,300);
  if(linkErr||!link?.signedUrl){alert("Ouverture impossible : "+(linkErr?.message||"Erreur"));btn.disabled=false;return}
- const a=document.createElement("a");a.href=link.signedUrl;a.target="_blank";a.rel="noopener noreferrer";a.textContent="Ouvrir le document (lien valable 5 minutes)";a.style.display="block";a.style.padding="12px";card.append(a);btn.disabled=false;
+ if(isAudio){const existing=card.querySelector("audio");if(existing)existing.remove();const player=document.createElement("audio");player.controls=true;player.preload="none";player.src=link.signedUrl;player.style.cssText="display:block;width:100%;margin-top:12px";card.append(player);player.play().catch(()=>{});}else{const a=document.createElement("a");a.href=link.signedUrl;a.target="_blank";a.rel="noopener noreferrer";a.textContent="Ouvrir le document (lien valable 5 minutes)";a.style.display="block";a.style.padding="12px";card.append(a)}btn.disabled=false;
  };card.append(btn);
  if(ownedIds.has(select.value)){
  const editBtn=node("button","✏️ Modifier ce document");editBtn.type="button";editBtn.style.marginTop="10px";
@@ -158,11 +161,19 @@ async function bibliotheque(){
  msg.textContent="Document modifié avec succès.";await refresh();
  };
  };card.append(editBtn);
+ const del=node("button","🗑️ Supprimer ce document");del.type="button";del.style.marginTop="10px";del.onclick=async()=>{
+ if(!confirm("Supprimer définitivement « "+doc.titre+" » de la bibliothèque ? Cette action est irréversible."))return;
+ del.disabled=true;const {data:deleted,error:deleteError}=await client.from("partitions").delete().eq("id",doc.id).eq("chorale_id",select.value).select("id").maybeSingle();
+ if(deleteError||!deleted){alert("Suppression impossible : "+(deleteError?.message||"Accès refusé"));del.disabled=false;return}
+ const {error:fileError}=await client.storage.from("bibliotheque-chorales").remove([doc.chemin_fichier]);
+ if(fileError)alert("Document retiré du catalogue, mais le fichier reste dans le stockage : "+fileError.message);
+ await refresh();
+ };card.append(del);
  }
  list.append(card)
  }
  }
- select.onchange=async()=>{updateUpload();await refresh()};filter.onchange=refresh;
+ select.onchange=async()=>{updateUpload();await refresh()};filter.onchange=refresh;let searchTimer;search.oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refresh,250)};
  upload.onsubmit=async e=>{
  e.preventDefault();if(!ownedIds.has(select.value)){uploadStatus.textContent="Seul le responsable peut ajouter des fichiers.";return}
  const chosen=file.files?.[0];if(!chosen){uploadStatus.textContent="Choisissez un fichier.";return}

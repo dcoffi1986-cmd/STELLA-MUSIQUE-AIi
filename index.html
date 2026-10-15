@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 28 : préparation et aperçu des partitions PDF et photos, sans reconnaissance automatique.</small></p>
+<p><small>Version 29 : aperçu automatique des partitions déjà présentes dans la bibliothèque.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -488,27 +488,47 @@ function clavierMusical(){
 
 function preparationPartitionSATB(selectedPartition){
  const box=document.createElement("section");box.className="card";
- box.append(node("h3","📄 Préparer une partition PDF ou photo"),node("p","Première étape vers la reconnaissance musicale : sélectionner et contrôler la lisibilité d'une partition. La détection automatique des notes et la conversion en MusicXML ne sont pas encore disponibles."));
- if(selectedPartition)box.append(node("p","Partition de la bibliothèque : "+selectedPartition.titre+" (déjà enregistrée)."));
+ box.append(node("h3","📄 Partition PDF ou photo"),node("p","Affichage de la partition pour vérifier sa lisibilité. La reconnaissance automatique des notes n'est pas encore disponible."));
  const file=document.createElement("input");file.type="file";file.accept=".pdf,application/pdf,image/jpeg,image/png,image/webp";file.setAttribute("aria-label","Choisir un PDF ou une photo");
  const camera=document.createElement("input");camera.type="file";camera.accept="image/*";camera.capture="environment";camera.setAttribute("aria-label","Photographier une partition");
- const preview=document.createElement("div"),status=node("p","Vous pouvez choisir une photo ou un PDF pour vérifier sa lisibilité.");status.setAttribute("role","status");
- const quality=node("p","Conseils : photographier toute la page, à plat, avec une bonne lumière et sans masquer les portées.");
+ const preview=document.createElement("div"),status=node("p","Sélectionnez un PDF ou une photo.");status.setAttribute("role","status");
+ const quality=node("p","Conseil : assurez-vous que les portées et les notes sont bien lisibles.");
  let url=null;
  function clearPreview(){preview.replaceChildren();if(url){URL.revokeObjectURL(url);url=null}}
+ function showPreview(src,pdf,title){
+ preview.replaceChildren();
+ const view=document.createElement(pdf?"iframe":"img");view.src=src;view.style.cssText="display:block;width:100%;max-height:520px;border:1px solid #d5a943;border-radius:10px;"+(pdf?"height:480px;background:#fff;":"object-fit:contain;");
+ view.setAttribute("title",title);preview.append(view);
+ }
  function inspect(f){
  clearPreview();if(!f)return;
  if(f.size>15*1024*1024){status.textContent="Fichier trop volumineux : maximum 15 Mo.";return}
  const pdf=f.type==="application/pdf"||/\\.pdf$/i.test(f.name);
  const img=f.type.startsWith("image/");
  if(!pdf&&!img){status.textContent="Choisissez un PDF ou une image JPG, PNG ou WebP.";return}
- url=URL.createObjectURL(f);
- const view=document.createElement(pdf?"iframe":"img");view.src=url;view.style.cssText="display:block;width:100%;max-height:520px;border:1px solid #d5a943;border-radius:10px;"+(pdf?"height:480px;background:#fff;":"object-fit:contain;");
- view.setAttribute("title","Aperçu de la partition");preview.append(view);
- status.textContent="Aperçu de « "+f.name+" ». Vérifiez que toutes les notes sont lisibles. Aucune reconnaissance automatique n'a été effectuée.";
+ url=URL.createObjectURL(f);showPreview(url,pdf,"Aperçu de la partition");
+ status.textContent="Aperçu de « "+f.name+" ». Aucune reconnaissance automatique n'a été effectuée.";
  }
  file.onchange=()=>inspect(file.files?.[0]);camera.onchange=()=>inspect(camera.files?.[0]);
+ if(selectedPartition){
+ status.textContent="Chargement de la partition depuis la bibliothèque…";
+ box.append(node("p","🎼 "+selectedPartition.titre+" — chargement automatique depuis la bibliothèque."),status,preview);
+ const alternative=node("details","");const summary=document.createElement("summary");summary.textContent="Choisir une autre partition ou prendre une photo";alternative.append(summary,node("label","📁 PDF ou photo sur le téléphone"),file,node("label","📷 Photographier une partition papier"),camera);box.append(alternative,quality);
+ (async()=>{
+ try{
+ const {data,error}=await client.storage.from("bibliotheque-chorales").createSignedUrl(selectedPartition.chemin_fichier,600);
+ if(error||!data?.signedUrl)throw Error(error?.message||"Fichier indisponible");
+ if(!box.isConnected)return;
+ const path=selectedPartition.chemin_fichier||"";
+ const pdf=/\\.pdf(?:$|\\?)/i.test(path),img=/\\.(jpe?g|png|webp)(?:$|\\?)/i.test(path);
+ if(!pdf&&!img){status.textContent="Format non prévisualisable ici. Utilisez « Voir la partition » ci-dessus.";return}
+ showPreview(data.signedUrl,pdf,"Partition "+selectedPartition.titre);
+ status.textContent="Partition chargée depuis la bibliothèque. Vérifiez la lisibilité des notes. La reconnaissance automatique n'est pas encore active.";
+ }catch(e){status.textContent="Impossible d'afficher automatiquement la partition : "+e.message+". Vous pouvez utiliser « Voir la partition » ou choisir un fichier ci-dessous.";alternative.open=true}
+ })();
+ }else{
  box.append(node("label","📁 PDF ou photo sur le téléphone"),file,node("label","📷 Photographier une partition papier"),camera,status,preview,quality);
+ }
  return box;
 }
 

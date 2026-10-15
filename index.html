@@ -8,9 +8,9 @@
 <main class="wrap"><nav class="tabs" aria-label="Navigation">
 <button data-page="accueil">🏠 Accueil</button><button data-page="discussions">💬 Discussions</button>
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
-<button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
+<button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 23 : suivi individuel des cotisations mensuelles.</small></p>
+<p><small>Version 24 : premier répétiteur SATB (fichiers audio par pupitre).</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -40,6 +40,7 @@ function show(page){
  if(page==="repetitions"){repetitions();return}
  if(page==="tableau"){tableauDeBord();return}
  if(page==="finances"){financesChorale();return}
+ if(page==="satb"){repetiteurSATB();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
@@ -457,6 +458,59 @@ async function repetitions(){
  submit.disabled=false};
  choose.onchange=()=>{updateForm();refresh()};
  updateForm();status.textContent="Les répétitions enregistrées sont visibles par les membres de cette chorale.";await refresh()
+}
+
+
+async function repetiteurSATB(){
+ content.append(node("h2","🎧 Répétiteur SATB"),node("p","Écoutez et travaillez votre voix à votre rythme. Pour entendre une voix isolée, la chorale doit fournir un enregistrement audio séparé pour ce pupitre. Cet outil ne sépare pas automatiquement les voix d’un fichier mixé."));
+ if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux enregistrements de votre chorale."));return}
+ const status=node("p","Recherche des chorales…");status.setAttribute("role","status");content.append(status);
+ try{
+ const [{data:mem,error:me},{data:owned,error:oe}]=await Promise.all([client.from("membres").select("chorale_id").eq("utilisateur_id",currentUser.id),client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id)]);
+ if(me||oe)throw me||oe;
+ const ids=[...new Set([...(mem||[]).map(x=>x.chorale_id),...(owned||[]).map(x=>x.id)])];
+ if(!ids.length){status.textContent="Vous ne faites partie d'aucune chorale.";return}
+ const {data:choirs,error:ce}=await client.from("chorales").select("id,nom").in("id",ids);if(ce)throw ce;
+ status.textContent="Choisissez une chorale et un enregistrement audio.";
+ const choir=document.createElement("select");choir.style.cssText="width:100%;padding:12px;color:#142946";
+ for(const c of choirs||[]){const o=document.createElement("option");o.value=c.id;o.textContent=c.nom;choir.append(o)}
+ content.append(node("label","Chorale"),choir);
+ const voices=[["soprano","🎵 Soprano"],["alto","🎵 Alto"],["tenor","🎵 Ténor"],["basse","🎵 Basse"],["tous","🎶 Ensemble"]];
+ const voice=document.createElement("select");voice.style.cssText=choir.style.cssText;
+ for(const [v,label] of voices){const o=document.createElement("option");o.value=v;o.textContent=label;voice.append(o)}
+ content.append(node("label","Voix à travailler"),voice);
+ const recording=document.createElement("select");recording.style.cssText=choir.style.cssText;content.append(node("label","Enregistrement"),recording);
+ const player=document.createElement("audio");player.controls=true;player.preload="none";player.style.cssText="width:100%;margin:18px 0";
+ const speed=document.createElement("select");speed.style.cssText=choir.style.cssText;
+ for(const [v,label] of [["0.5","Très lent (0,5×)"],["0.75","Lent (0,75×)"],["1","Normal (1×)"],["1.25","Rapide (1,25×)"]]){const o=document.createElement("option");o.value=v;o.textContent=label;speed.append(o)}speed.value="1";
+ const rewind=node("button","⏪ Reculer de 10 secondes"),repeat=node("button","🔁 Répéter le passage"),markA=node("button","📍 Début du passage"),markB=node("button","📍 Fin du passage"),clear=node("button","✖ Effacer la boucle");
+ for(const b of [rewind,repeat,markA,markB,clear])b.type="button";
+ const info=node("p",""),notes=node("p","La vitesse lente facilite l'apprentissage. Les enregistrements restent dans la bibliothèque de votre chorale.");info.setAttribute("role","status");
+ content.append(player,node("label","Vitesse de lecture"),speed,rewind,markA,markB,repeat,clear,info,notes);
+ let tracks=[],a=null,b=null,loop=false,request=0;
+ function resetPlayer(){player.pause();player.removeAttribute("src");player.load();a=b=null;loop=false;repeat.textContent="🔁 Répéter le passage"}
+ async function loadTracks(){
+ const my=++request;resetPlayer();recording.replaceChildren();info.textContent="Chargement des fichiers audio…";
+ const {data,error}=await client.from("partitions").select("id,titre,chemin_fichier,pupitre").eq("chorale_id",choir.value).order("titre").limit(200);
+ if(my!==request)return;if(error){info.textContent="Erreur : "+error.message;return}
+ tracks=(data||[]).filter(d=>/\\.(mp3|m4a|wav|ogg|webm)$/i.test(d.chemin_fichier)&&((d.pupitre||"tous")===voice.value));
+ for(const d of tracks){const o=document.createElement("option");o.value=d.id;o.textContent=d.titre;recording.append(o)}
+ info.textContent=tracks.length?tracks.length+" enregistrement(s) disponible(s). Appuyez sur Charger.":"Aucun fichier audio pour ce pupitre. Le responsable peut en ajouter dans Bibliothèque en choisissant le pupitre.";
+ }
+ const loadBtn=node("button","▶️ Charger cet enregistrement");loadBtn.type="button";content.insertBefore(loadBtn,player);
+ loadBtn.onclick=async()=>{const d=tracks.find(t=>t.id===recording.value);if(!d){info.textContent="Choisissez un enregistrement.";return}loadBtn.disabled=true;resetPlayer();
+ const {data,error}=await client.storage.from("bibliotheque-chorales").createSignedUrl(d.chemin_fichier,3600);
+ if(error||!data?.signedUrl){info.textContent="Impossible de charger l'audio : "+(error?.message||"Fichier indisponible")}else{player.src=data.signedUrl;player.playbackRate=Number(speed.value);info.textContent="Prêt : "+d.titre+" — "+(voices.find(v=>v[0]===voice.value)?.[1]||"");}
+ loadBtn.disabled=false};
+ speed.onchange=()=>{player.playbackRate=Number(speed.value)};
+ rewind.onclick=()=>{if(Number.isFinite(player.duration))player.currentTime=Math.max(0,player.currentTime-10)};
+ markA.onclick=()=>{if(!player.src)return; a=player.currentTime;info.textContent="Début du passage : "+Math.floor(a)+" s"};
+ markB.onclick=()=>{if(!player.src)return;b=player.currentTime;info.textContent="Fin du passage : "+Math.floor(b)+" s"};
+ repeat.onclick=()=>{if(a===null||b===null||b<=a+0.3){info.textContent="Placez d'abord le début puis la fin du passage.";return}loop=!loop;repeat.textContent=loop?"⏹ Arrêter la boucle":"🔁 Répéter le passage";if(loop)player.currentTime=a};
+ clear.onclick=()=>{a=b=null;loop=false;repeat.textContent="🔁 Répéter le passage";info.textContent="Boucle effacée."};
+ player.addEventListener("timeupdate",()=>{if(loop&&a!==null&&b!==null&&player.currentTime>=b)player.currentTime=a});
+ choir.onchange=loadTracks;voice.onchange=loadTracks;await loadTracks();
+ }catch(e){status.textContent="Erreur : "+(e.message||"Chargement impossible")}
 }
 
 async function bibliotheque(){

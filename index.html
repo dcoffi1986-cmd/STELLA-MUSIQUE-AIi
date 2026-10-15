@@ -10,7 +10,7 @@
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
 <button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="finances">💰 Finances</button><button data-page="satb">🎧 Répétiteur SATB</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 27 : prototype piano MusicXML dans le répétiteur SATB.</small></p>
+<p><small>Version 28 : préparation et aperçu des partitions PDF et photos, sans reconnaissance automatique.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -485,6 +485,33 @@ function clavierMusical(){
 }
 
 
+
+function preparationPartitionSATB(selectedPartition){
+ const box=document.createElement("section");box.className="card";
+ box.append(node("h3","📄 Préparer une partition PDF ou photo"),node("p","Première étape vers la reconnaissance musicale : sélectionner et contrôler la lisibilité d'une partition. La détection automatique des notes et la conversion en MusicXML ne sont pas encore disponibles."));
+ if(selectedPartition)box.append(node("p","Partition de la bibliothèque : "+selectedPartition.titre+" (déjà enregistrée)."));
+ const file=document.createElement("input");file.type="file";file.accept=".pdf,application/pdf,image/jpeg,image/png,image/webp";file.setAttribute("aria-label","Choisir un PDF ou une photo");
+ const camera=document.createElement("input");camera.type="file";camera.accept="image/*";camera.capture="environment";camera.setAttribute("aria-label","Photographier une partition");
+ const preview=document.createElement("div"),status=node("p","Vous pouvez choisir une photo ou un PDF pour vérifier sa lisibilité.");status.setAttribute("role","status");
+ const quality=node("p","Conseils : photographier toute la page, à plat, avec une bonne lumière et sans masquer les portées.");
+ let url=null;
+ function clearPreview(){preview.replaceChildren();if(url){URL.revokeObjectURL(url);url=null}}
+ function inspect(f){
+ clearPreview();if(!f)return;
+ if(f.size>15*1024*1024){status.textContent="Fichier trop volumineux : maximum 15 Mo.";return}
+ const pdf=f.type==="application/pdf"||/\\.pdf$/i.test(f.name);
+ const img=f.type.startsWith("image/");
+ if(!pdf&&!img){status.textContent="Choisissez un PDF ou une image JPG, PNG ou WebP.";return}
+ url=URL.createObjectURL(f);
+ const view=document.createElement(pdf?"iframe":"img");view.src=url;view.style.cssText="display:block;width:100%;max-height:520px;border:1px solid #d5a943;border-radius:10px;"+(pdf?"height:480px;background:#fff;":"object-fit:contain;");
+ view.setAttribute("title","Aperçu de la partition");preview.append(view);
+ status.textContent="Aperçu de « "+f.name+" ». Vérifiez que toutes les notes sont lisibles. Aucune reconnaissance automatique n'a été effectuée.";
+ }
+ file.onchange=()=>inspect(file.files?.[0]);camera.onchange=()=>inspect(camera.files?.[0]);
+ box.append(node("label","📁 PDF ou photo sur le téléphone"),file,node("label","📷 Photographier une partition papier"),camera,status,preview,quality);
+ return box;
+}
+
 function musicXMLPiano(){
  const box=document.createElement("section");box.className="card";
  box.append(node("h3","🎹 Piano intelligent — MusicXML (prototype)"),node("p","Testez un fichier MusicXML (.musicxml, .xml ou .mxl) de votre téléphone. Les PDF et photos ne sont pas encore convertis en notes. Le fichier reste sur votre appareil."));
@@ -561,7 +588,7 @@ async function repetiteurSATB(selectedPartition=null){
  chosenBox.append(node("p","⏳ La lecture automatique des notes PDF ou des photos n'est pas encore disponible. Nous préparons cette fonction. Vous pouvez déjà écouter les enregistrements SATB lorsqu'ils existent."));
  content.append(chosenBox);
  }
- content.append(musicXMLPiano(),node("p","Choisissez votre pupitre. Pour écouter une voix isolée, un fichier audio correspondant doit être disponible."));
+ content.append(preparationPartitionSATB(selectedPartition),musicXMLPiano(),node("p","Choisissez votre pupitre. Pour écouter une voix isolée, un fichier audio correspondant doit être disponible."));
  if(!currentUser){content.append(node("p","Connectez-vous pour accéder aux enregistrements de votre chorale."));return}
  const status=node("p","Recherche des chorales…");status.setAttribute("role","status");content.append(status);
  try{

@@ -8,9 +8,9 @@
 <main class="wrap"><nav class="tabs" aria-label="Navigation">
 <button data-page="accueil">🏠 Accueil</button><button data-page="discussions">💬 Discussions</button>
 <button data-page="chorales">👥 Chorales</button><button data-page="bibliotheque">📚 Bibliothèque</button>
-<button data-page="repetitions">📅 Répétitions</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
+<button data-page="repetitions">📅 Répétitions</button><button data-page="tableau">📊 Tableau de bord</button><button data-page="studio">🎼 Studio IA</button><button data-page="profil">👤 Profil</button></nav>
 <section id="content" class="card" aria-live="polite"></section>
-<p><small>Version 17 : gestion des répétitions, chants et présences.</small></p>
+<p><small>Version 18 : tableau de bord et rapports de présence.</small></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -38,6 +38,7 @@ function show(page){
  if(page==="discussions"){discussions();return}
  if(page==="bibliotheque"){bibliotheque();return}
  if(page==="repetitions"){repetitions();return}
+ if(page==="tableau"){tableauDeBord();return}
  const data=pages[page]||pages.accueil;
  content.append(node("h2",data[0]),node("p",data[1]));
  if(page==="accueil"){const b=node("button",currentUser?"Voir mon profil":"Inscription / Connexion");b.onclick=()=>show("profil");content.append(b)}
@@ -86,6 +87,92 @@ async function discussions(){
 }
 
 
+
+
+async function tableauDeBord(){
+ content.append(node("h2","📊 Tableau de bord administratif"));
+ if(!currentUser){content.append(node("p","Connectez-vous en tant que responsable de chorale."));return}
+ const state=node("p","Chargement des chorales…");state.setAttribute("role","status");content.append(state);
+ const {data:owned,error:ownedErr}=await client.from("chorales").select("id,nom").eq("proprietaire_id",currentUser.id);
+ if(ownedErr){state.textContent="Erreur : "+ownedErr.message;return}
+ if(!owned?.length){state.textContent="Cet espace est réservé aux responsables de chorale.";return}
+ const chooseLabel=node("label","Chorale"),choose=document.createElement("select");choose.style.cssText="width:100%;padding:12px;margin:8px 0 14px;color:#142946";
+ for(const c of owned){const o=document.createElement("option");o.value=c.id;o.textContent=c.nom;choose.append(o)}
+ const monthLabel=node("label","Mois du rapport"),month=document.createElement("input");month.type="month";month.value=new Date().toISOString().slice(0,7);
+ const allLabel=node("label","Afficher tous les mois"),all=document.createElement("input");all.type="checkbox";all.style.cssText="width:auto;margin-left:12px";
+ const controls=document.createElement("div");const exportCsv=node("button","📥 Exporter pour Excel (CSV)");exportCsv.type="button";
+ const exportPdf=node("button","🖨️ Imprimer / enregistrer en PDF");exportPdf.type="button";
+ const refreshBtn=node("button","🔄 Actualiser");refreshBtn.type="button";
+ controls.append(exportCsv,exportPdf,refreshBtn);
+ const results=document.createElement("div");
+ content.append(chooseLabel,choose,monthLabel,month,allLabel,all,controls,results);
+ let report=null;
+ const fmt=d=>new Date(d).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});
+ function stats(people,events,marks){
+ const attended=marks.filter(x=>x.statut==="present").length,absent=marks.filter(x=>x.statut==="absent").length,excused=marks.filter(x=>x.statut==="excuse").length;
+ const possible=people.length*events.length,unfilled=Math.max(0,possible-marks.length);
+ return {attended,absent,excused,unfilled,possible,rate:possible?Math.round(attended/possible*100):null}
+ }
+ async function load(){
+ results.replaceChildren(node("p","Calcul des statistiques…"));report=null;exportCsv.disabled=exportPdf.disabled=true;
+ const choir=owned.find(c=>c.id===choose.value);if(!choir)return;
+ const [{data:people,error:peopleErr},{data:events,error:eventErr}]=await Promise.all([
+ client.from("membres").select("utilisateur_id").eq("chorale_id",choose.value),
+ client.from("repetitions").select("id,titre,debut,lieu").eq("chorale_id",choose.value).order("debut",{ascending:true}).limit(1000)
+ ]);
+ if(peopleErr||eventErr){results.replaceChildren(node("p","Erreur : "+(peopleErr||eventErr).message));return}
+ const filtered=(events||[]).filter(e=>all.checked||new Date(e.debut).toISOString().slice(0,7)===month.value);
+ const eventIds=filtered.map(e=>e.id);
+ let marks=[];
+ if(eventIds.length){const {data,error}=await client.from("presences_repetition").select("repetition_id,utilisateur_id,statut").in("repetition_id",eventIds).limit(10000);
+ if(error){results.replaceChildren(node("p","Erreur des présences : "+error.message));return}marks=data||[]}
+ const {data:names,error:namesErr}=await client.rpc("noms_membres_chorale",{p_chorale_id:choose.value});
+ if(namesErr){results.replaceChildren(node("p","Erreur des noms : "+namesErr.message));return}
+ const nameMap=new Map((names||[]).map(p=>[p.utilisateur_id,p.nom]));
+ const members=(people||[]).map(p=>({id:p.utilisateur_id,nom:nameMap.get(p.utilisateur_id)||"Choriste"}));
+ const allStats=stats(members,filtered,marks);
+ const upcoming=(events||[]).filter(e=>new Date(e.debut)>new Date());
+ report={choir:choir.nom,period:all.checked?"Tous les mois":month.value,members,events:filtered,marks,allStats,upcoming};
+ results.replaceChildren();
+ const grid=document.createElement("div");grid.style.cssText="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px";
+ for(const [label,value] of [["👥 Choristes",members.length],["📅 Répétitions",filtered.length],["⏳ Prochaines répétitions",upcoming.length],["🟢 Présences",allStats.attended],["🔴 Absences",allStats.absent],["🟡 Excusés",allStats.excused],["⚪ Non renseignés",allStats.unfilled],["📈 Taux de présence",allStats.rate===null?"—":allStats.rate+" %"]]){
+ const card=document.createElement("div");card.style.cssText="padding:12px;border:1px solid #d5a943;border-radius:12px;overflow-wrap:anywhere";card.append(node("small",label),node("h2",String(value)));grid.append(card)
+ }
+ results.append(grid,node("p","Le taux de présence = présences confirmées ÷ (choristes × répétitions du rapport). Les présences non renseignées ne sont pas considérées comme des absences."));
+ results.append(node("h3","📅 Prochaines répétitions"));
+ if(!upcoming.length)results.append(node("p","Aucune répétition future."));
+ else for(const e of upcoming.slice(0,8))results.append(node("p",fmt(e.debut)+" — "+e.titre+" — "+e.lieu));
+ results.append(node("h3","📋 Détail des présences"));
+ if(!filtered.length)results.append(node("p","Aucune répétition pour cette période."));
+ for(const e of filtered){
+ const eMarks=marks.filter(m=>m.repetition_id===e.id),es=stats(members,[e],eMarks);
+ results.append(node("p",fmt(e.debut)+" · "+e.titre+" — Présents : "+es.attended+" · Absents : "+es.absent+" · Excusés : "+es.excused+" · Non renseignés : "+es.unfilled));
+ }
+ exportCsv.disabled=exportPdf.disabled=false;
+ }
+ function rows(){
+ if(!report)return [];
+ const map=new Map(report.marks.map(m=>[m.repetition_id+"|"+m.utilisateur_id,m.statut]));
+ const labels={present:"Présent",absent:"Absent",excuse:"Excusé"};
+ return report.events.flatMap(e=>report.members.map(p=>[report.choir,report.period,fmt(e.debut),e.titre,e.lieu,p.nom,labels[map.get(e.id+"|"+p.id)]||"Non renseigné"]))
+ }
+ exportCsv.onclick=()=>{
+ if(!report)return;
+ const csv=[["Chorale","Période","Date","Répétition","Lieu","Choriste","Statut"],...rows()].map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
+ const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=url;a.download="presences_stella_"+(all.checked?"tous":month.value)+".csv";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ };
+ exportPdf.onclick=()=>{
+ if(!report)return;
+ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+ const lines=rows().map(row=>"<tr>"+row.slice(2).map(v=>"<td>"+esc(v)+"</td>").join("")+"</tr>").join("");
+ const html='<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Rapport de présence STELLA MUSIC AI</title><style>body{font-family:Arial,sans-serif;padding:20px;color:#142946}table{border-collapse:collapse;width:100%;font-size:11px}td,th{border:1px solid #777;padding:6px;text-align:left}h1{font-size:21px}@media print{button{display:none}}</style></head><body><h1>Rapport de présence — STELLA MUSIC AI</h1><p><b>Chorale :</b> '+esc(report.choir)+'</p><p><b>Période :</b> '+esc(report.period)+'</p><p><b>Choristes :</b> '+report.members.length+' · <b>Répétitions :</b> '+report.events.length+' · <b>Présents :</b> '+report.allStats.attended+' · <b>Absents :</b> '+report.allStats.absent+' · <b>Excusés :</b> '+report.allStats.excused+' · <b>Non renseignés :</b> '+report.allStats.unfilled+'</p><p><b>Taux de présence :</b> '+(report.allStats.rate===null?"—":report.allStats.rate+" %")+'</p><table><thead><tr><th>Date</th><th>Répétition</th><th>Lieu</th><th>Choriste</th><th>Statut</th></tr></thead><tbody>'+lines+'</tbody></table><p><small>Les statuts non renseignés ne sont pas des absences confirmées.</small></p><button onclick="window.print()">Imprimer / enregistrer en PDF</button></body></html>';
+ const blob=new Blob([html],{type:"text/html;charset=utf-8"}),url=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=url;a.target="_blank";a.rel="noopener";a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
+ };
+ choose.onchange=load;month.onchange=load;all.onchange=()=>{month.disabled=all.checked;load()};refreshBtn.onclick=load;
+ state.textContent="Les données de présence sont accessibles uniquement aux responsables de chorale.";await load();
+}
 
 async function repetitions(){
  content.append(node("h2","📅 Répétitions de la chorale"));

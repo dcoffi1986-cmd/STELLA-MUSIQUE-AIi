@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>STELLA V2.0 – Koumassi</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f2f6f9}iframe{border:0;width:100%;height:100%;display:block}</style>
+</head>
+<body>
+<iframe id="app" src="./index.html?v=19" allow="geolocation"></iframe>
+<script>
+const frame=document.getElementById('app');
+let lastGps=null;
+const normText=v=>String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
+const normId=v=>{const x=normText(v);return /^\d+$/.test(x)?String(parseInt(x,10)):x};
+const makeKey=(q,i,l)=>[normText(q),normId(i),normId(l)].join('|');
+function lots(){try{return JSON.parse(localStorage.getItem('stella_lots_v17')||'{}')}catch(e){return {}}}
+function findKey(d){const q=d.getElementById('quartier').value,i=d.getElementById('ilot').value,l=d.getElementById('lot').value,w=makeKey(q,i,l),all=lots();if(all[w])return w;return Object.keys(all).find(k=>{const a=k.split('|');return a.length===3&&makeKey(a[0],a[1],a[2])===w})||''}
+function distanceMeters(p){if(!lastGps||!p)return null;const R=6371000,rad=x=>x*Math.PI/180,dlat=rad(p.lat-lastGps.lat),dlng=rad(p.lng-lastGps.lng),a=Math.sin(dlat/2)**2+Math.cos(rad(lastGps.lat))*Math.cos(rad(p.lat))*Math.sin(dlng/2)**2;return Math.round(2*R*Math.asin(Math.sqrt(a)))}
+function updateInfo(d,k){const all=lots(),p=all[k];if(!p)return;const a=k.split('|'),box=d.getElementById('lotInfoV2'),dist=distanceMeters(p);box.innerHTML='<b>Lot '+a[2]+'</b> · Îlot '+a[1]+' · '+a[0]+(p.arrived?' <span class="okbadgeV2">Terrain validé</span>':'')+'<br>Tournée : <b>'+(p.tour||'à confirmer')+'</b>'+(dist!==null?'<br>Distance GPS → lot : <b>'+dist+' m</b>':'')+(p.diam?'<br>Diamètre : '+p.diam+' mm':'')+(p.long?'<br>Longueur : '+p.long+' m':'');box.style.display='block'}
+frame.addEventListener('load',()=>{
+ const w=frame.contentWindow,d=frame.contentDocument;
+ if(!d||!w)return;
+ d.title='STELLA V2.0 – Koumassi';
+ const h=d.querySelector('header h1'),sm=d.querySelector('header small');
+ if(h)h.textContent='STELLA · Koumassi V2.0';
+ if(sm)sm.textContent='GPS · tournées · recherche Lot / Îlot / Quartier';
+ const route=d.getElementById('route');if(route)route.textContent='📍 Ouvrir l’itinéraire vers le lot';
+ const css=d.createElement('style');css.textContent='.lotinfoV2{display:none;background:#f7fbfd;border:1px solid #c9dce7;border-radius:8px;padding:10px 12px;line-height:1.55;margin-top:8px}.lotinfoV2 b{color:#064365}.okbadgeV2{display:inline-block;background:#e8f7ee;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:bold}';d.head.appendChild(css);
+ let box=d.getElementById('lotInfoV2');if(!box){box=d.createElement('div');box.id='lotInfoV2';box.className='lotinfoV2';route?.insertAdjacentElement('afterend',box)}
+ const oldFind=w.findLot?.bind(w),oldArrived=w.arrived?.bind(w),oldGps=w.myPosition?.bind(w);
+ w.findLot=function(){
+   const q=d.getElementById('quartier'),i=d.getElementById('ilot'),l=d.getElementById('lot');
+   if(!q.value.trim()||!i.value.trim()||!l.value.trim()){d.getElementById('status').textContent='Renseignez quartier, îlot et lot.';return}
+   const all=lots(),k=findKey(d);
+   if(!k){const nq=normText(q.value),ni=normId(i.value),near=Object.keys(all).filter(x=>{const a=x.split('|');return a.length===3&&normText(a[0])===nq&&normId(a[1])===ni}).slice(0,8).map(x=>x.split('|')[2]);if(route)route.style.display='none';box.style.display='none';d.getElementById('status').textContent=near.length?'Lot non trouvé dans cet îlot. Lots déjà enregistrés : '+near.join(', ')+'.':'Lot non encore géolocalisé. Utilisez « Placer le lot sur carte » si vous connaissez sa position exacte.';return}
+   const a=k.split('|');q.value=a[0];i.value=a[1];l.value=a[2];const p=all[k];d.getElementById('diam').value=p.diam||'';d.getElementById('long').value=p.long||'';oldFind();updateInfo(d,k);const dist=distanceMeters(p);if(dist!==null)d.getElementById('status').textContent='Lot retrouvé · tournée '+(p.tour||'à confirmer')+' · distance GPS : '+dist+' m. Utilisez l’itinéraire si nécessaire.';
+ };
+ w.arrived=function(){const k=findKey(d);if(k){const a=k.split('|');d.getElementById('quartier').value=a[0];d.getElementById('ilot').value=a[1];d.getElementById('lot').value=a[2]}oldArrived();const k2=findKey(d);if(k2)updateInfo(d,k2)};
+ w.myPosition=function(){oldGps();navigator.geolocation?.getCurrentPosition(pos=>{lastGps={lat:pos.coords.latitude,lng:pos.coords.longitude};const k=findKey(d);if(k){updateInfo(d,k);const p=lots()[k],dist=distanceMeters(p);d.getElementById('status').textContent='Position GPS affichée. Distance jusqu’au lot recherché : '+dist+' m.'}},()=>{}, {enableHighAccuracy:true,timeout:15000,maximumAge:0})};
+ ['quartier','ilot','lot'].forEach(id=>d.getElementById(id)?.addEventListener('keydown',e=>{if(e.key==='Enter')w.findLot()}));
+ const foot=d.querySelector('.foot');if(foot)foot.firstChild.textContent='V2.0 : recherche intelligente des lots enregistrés (012 = 12, 005 = 5), distance GPS et itinéraire. ';
+ d.getElementById('status').textContent='V2.0 prête : GPS, tournées et recherche intelligente Lot / Îlot / Quartier.';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>STELLA Koumassi V2.3-BIA</title><style>html,body{margin:0;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:0;display:block;background:#fff}</style></head><body>
+<script src="v23-p0.js"></script><script src="v23-p1.js"></script><script src="v23-p2.js"></script><script src="v23-p3.js"></script>
+<iframe id="app" src="v2-1.html" allow="geolocation"></iframe>
+<script>
+const frame=document.getElementById('app');
+function N(v){v=String(v??'').trim().toUpperCase();return /^\d+$/.test(v)?String(parseInt(v,10)):v.replace(/^0+(?=\d)/,'')}
+async function decodeData(){const raw=atob(window.V23_B64||'');const u=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)u[i]=raw.charCodeAt(i);const txt=await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text();return JSON.parse(txt)}
+const frameReady=new Promise(r=>frame.addEventListener('load',r,{once:true}));
+Promise.all([decodeData(),frameReady]).then(([data])=>{
+ const w=frame.contentWindow,d=frame.contentDocument;
+ try{
+  d.title='STELLA V2.3-BIA – Koumassi';
+  const h=d.querySelector('header h1');if(h)h.textContent='STELLA · Koumassi V2.3-BIA';
+  const sm=d.querySelector('header small');if(sm)sm.textContent='BIA SUD · Quartier + Îlot + Lot · GPS';
+  const q=d.getElementById('quartier');if(q)q.outerHTML='<select id="quartier"><option value="03">BIA SUD · code 03</option></select>';
+  const foot=d.querySelector('.foot');if(foot&&foot.firstChild)foot.firstChild.textContent='V2.3-BIA : BIA SUD (03) intégré depuis les couches géoréférencées Lot / ILOT du plan. 395 lots disponibles. Les contours des tournées restent inchangés. ';
+  if(d.getElementById('status'))d.getElementById('status').textContent='V2.3-BIA prête · BIA SUD : '+data.length+' lots intégrés.';
+  let built=null;const map=w.eval('map');
+  function clearBuilt(){if(built){map.removeLayer(built);built=null}}
+  function matches(){const i=N(d.getElementById('ilot').value),l=N(d.getElementById('lot').value);return data.filter(r=>r.code==='03'&&N(r.ilot)===i&&N(r.lot)===l)}
+  function showOne(r){clearBuilt();built=w.L.layerGroup().addTo(map);const poly=w.L.polygon(r.poly,{color:'#ff8a00',weight:4,fillOpacity:.28}).addTo(built);const obj={lat:r.lat,lng:r.lon,quartier:'BIA SUD',ilot:r.ilot,lot:r.lot,label:'BIA SUD · Îlot '+r.ilot+' · Lot '+r.lot,tournee:r.tournee};w.showLot(obj);w.L.marker([r.lat,r.lon]).addTo(built).bindPopup('<b>BIA SUD</b><br>Îlot '+r.ilot+' · Lot '+r.lot+'<br>Tournée '+r.tournee).openPopup();map.fitBounds(poly.getBounds(),{padding:[45,45],maxZoom:20});d.getElementById('tour').value=r.tournee;w.status('Trouvé : BIA SUD · Îlot '+r.ilot+' · Lot '+r.lot+' · tournée '+r.tournee+'.')}
+  w.findLot=function(){const i=d.getElementById('ilot').value.trim(),l=d.getElementById('lot').value.trim();if(!i||!l){w.status('Saisir l’îlot et le lot.');return}const ms=matches();if(ms.length===1){showOne(ms[0]);return}if(ms.length>1){clearBuilt();built=w.L.layerGroup().addTo(map);let b=[];ms.forEach((r,n)=>{w.L.polygon(r.poly,{color:'#ff8a00',weight:4,fillOpacity:.23}).addTo(built).bindPopup('Candidat '+(n+1)+' · Îlot '+r.ilot+' · Lot '+r.lot+' · tournée '+r.tournee);b.push(...r.poly)});map.fitBounds(b,{padding:[35,35],maxZoom:19});d.getElementById('tour').value=ms[0].tournee;w.status(ms.length+' emplacements portent ce même numéro dans BIA SUD. Touchez le contour voulu.');return}const saved=w.getLots?w.getLots():{},k=w.lotKey?w.lotKey('BIA SUD',i,l):'';if(k&&saved[k]){w.showLot(saved[k]);return}w.status('Lot/îlot non trouvé dans BIA SUD. Vérifiez les numéros.')};
+  const oldReset=w.resetMap;w.resetMap=function(){clearBuilt();return oldReset()};
+ }catch(e){console.error(e);if(d.getElementById('status'))d.getElementById('status').textContent='Erreur V2.3-BIA : '+e.message}
+}).catch(e=>console.error(e));
+</script></body></html>

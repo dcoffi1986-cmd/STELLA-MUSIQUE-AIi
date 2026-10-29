@@ -1,0 +1,53 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>STELLA Koumassi V2.2</title><style>html,body{margin:0;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:0;display:block;background:#fff}</style></head><body><iframe id="app" src="v2-1.html" allow="geolocation"></iframe><script>
+const frame=document.getElementById('app');
+frame.addEventListener('load',()=>{
+  const w=frame.contentWindow,d=frame.contentDocument;
+  try{
+    d.title='STELLA V2.2 – Koumassi';
+    const h=d.querySelector('header h1'); if(h) h.textContent='STELLA · Koumassi V2.2';
+    const sm=d.querySelector('header small'); if(sm) sm.textContent='Contours d’origine verrouillés · GPS + tournée automatique + lots';
+    const foot=d.querySelector('.foot'); if(foot && foot.firstChild) foot.firstChild.textContent='V2.2 : coordonnées des tournées inchangées. Le GPS indique automatiquement la tournée exacte. Une recherche masque visuellement les autres contours. « Tout afficher » restaure la carte générale. ';
+
+    const oldHighlight=w.highlight;
+    if(typeof oldHighlight==='function'){
+      w.highlight=function(n){
+        const ok=oldHighlight(n);
+        setTimeout(()=>{
+          d.querySelectorAll('#map path.leaflet-interactive').forEach(p=>{
+            const stroke=(p.getAttribute('stroke')||'').toLowerCase();
+            if(stroke==='#087bad' || stroke==='rgb(8, 123, 173)') p.style.opacity='0';
+          });
+        },60);
+        return ok;
+      };
+    }
+    const oldReset=w.resetMap;
+    if(typeof oldReset==='function'){
+      w.resetMap=function(){
+        d.querySelectorAll('#map path.leaflet-interactive').forEach(p=>p.style.opacity='');
+        return oldReset();
+      };
+    }
+    const oldGps=w.myPosition;
+    if(typeof oldGps==='function' && typeof w.tourAt==='function'){
+      w.myPosition=function(){
+        oldGps();
+        if(!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(p=>{
+          try{
+            const t=w.tourAt(w.L.latLng(p.coords.latitude,p.coords.longitude));
+            const input=d.getElementById('tour');
+            if(t && input) input.value=t;
+            setTimeout(()=>{
+              if(typeof w.status==='function'){
+                if(t) w.status('GPS obtenu · précision ~'+Math.round(p.coords.accuracy)+' m · vous êtes dans la tournée '+t+'. Contours inchangés.');
+                else w.status('GPS obtenu · précision ~'+Math.round(p.coords.accuracy)+' m · aucune tournée exacte détectée à cette position. Contours inchangés.');
+              }
+            },250);
+          }catch(e){}
+        },()=>{}, {enableHighAccuracy:true,timeout:15000,maximumAge:0});
+      };
+    }
+  }catch(e){console.error(e)}
+});
+</script></body></html>

@@ -13,8 +13,8 @@ button,.btn{border:0;border-radius:8px;padding:12px 15px;background:#0785b8;colo
 .note{padding:10px 14px;background:#fff7e5;font-size:13px;line-height:1.45}
 .route{display:none;text-align:center;text-decoration:none}
 .leaflet-popup-content{font-size:14px}
-</style></head><body><header><h1>STELLA · Koumassi — STABLE</h1><div class="sub">Contours de référence · 2 quartiers · GPS · Îlot + Lot</div></header><section class="panel"><div class="row"><input id="tour" placeholder="Tournée (099)" inputmode="numeric"><button id="btnTour">Voir</button><button id="btnAll" class="alt">Tout afficher</button><button id="btnGps" class="alt">📍 Ma position GPS</button></div><div class="row"><select id="quartier"><option value="03">BIA SUD · code 03</option><option value="00">Baradji / Kankankoura / Progrès / Aklomiabla · code 00</option></select><input id="ilot" placeholder="Îlot" inputmode="numeric"><input id="lot" placeholder="Lot"></div><div class="row"><button id="btnLot">Rechercher lot</button><button id="btnPlace" class="alt">Placer le lot sur carte</button></div><div class="row"><input id="diam" placeholder="Diamètre (mm)" inputmode="decimal"><input id="long" placeholder="Longueur (m)" inputmode="decimal"><button id="btnArrive">OK · Sur place</button></div><a id="route" class="btn route" target="_blank" rel="noopener">Ouvrir l’itinéraire</a></section><div id="map"></div><section class="panel"><b>Mes lots enregistrés manuellement</b><div class="row"><select id="saved"><option value="">Choisir un lot enregistré</option></select><button id="btnSaved">Afficher le lot</button></div></section><div id="status" class="status">Chargement contrôlé des données…</div><div class="note"><b>Version STABLE :</b> les contours de tournée ne sont jamais recalculés. 
-  674 lots sont intégrés : 395 pour BIA SUD (03) et 279 pour Baradji / Kankankoura / Progrès / Aklomiabla (00).
+</style></head><body><header><h1>STELLA · Koumassi — STABLE</h1><div class="sub">Contours de référence · 3 quartiers · GPS · Îlot + Lot</div></header><section class="panel"><div class="row"><input id="tour" placeholder="Tournée (099)" inputmode="numeric"><button id="btnTour">Voir</button><button id="btnAll" class="alt">Tout afficher</button><button id="btnGps" class="alt">📍 Ma position GPS</button></div><div class="row"><select id="quartier"><option value="03">BIA SUD · code 03</option><option value="00">Baradji / Kankankoura / Progrès / Aklomiabla · code 00</option><option value="02">Boulevard du Caire / Mosquée / Mairie · code 02</option></select><input id="ilot" placeholder="Îlot" inputmode="numeric"><input id="lot" placeholder="Lot"></div><div class="row"><button id="btnLot">Rechercher lot</button><button id="btnPlace" class="alt">Placer le lot sur carte</button></div><div class="row"><input id="diam" placeholder="Diamètre (mm)" inputmode="decimal"><input id="long" placeholder="Longueur (m)" inputmode="decimal"><button id="btnArrive">OK · Sur place</button></div><a id="route" class="btn route" target="_blank" rel="noopener">Ouvrir l’itinéraire</a></section><div id="map"></div><section class="panel"><b>Mes lots enregistrés manuellement</b><div class="row"><select id="saved"><option value="">Choisir un lot enregistré</option></select><button id="btnSaved">Afficher le lot</button></div></section><div id="status" class="status">Chargement contrôlé des données…</div><div class="note"><b>Version STABLE :</b> les contours de tournée ne sont jamais recalculés. 
+  787 lots sont intégrés : 395 pour BIA SUD (03), 279 pour Baradji / Kankankoura / Progrès / Aklomiabla (00) et 113 pour Boulevard du Caire / Mosquée / Mairie (02).
 </div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
 const $ = id => document.getElementById(id);
 const status = msg => $('status').textContent = msg;
@@ -22,7 +22,8 @@ const SB_URL = 'https://fvwufhrbvlgupmennbbw.supabase.co';
 const SB_KEY = 'sb_publishable_myrULLLmXuC79x8VwdrYqA_lz_S0uTr';
 const QUARTIER_LABELS = {
   '03':'BIA SUD',
-  '00':'Baradji / Kankankoura / Progrès / Aklomiabla'
+  '00':'Baradji / Kankankoura / Progrès / Aklomiabla',
+  '02':'Boulevard du Caire / Mosquée / Mairie'
 };
 function quartierLabel(code) { return QUARTIER_LABELS[String(code)] || String(code || 'Quartier'); }
 let map, tourLayer, tourBounds, userMarker, accuracyCircle, userPos;
@@ -57,19 +58,20 @@ async function loadTours() {
 }
 async function loadLots() {
   const fields = 'quartier,code,tournee,ilot,lot,lat,lon,poly,method';
-  const url = SB_URL + '/rest/v1/stella_koumassi_lots?select=' + fields + '&code=in.(00,03)&order=id.asc';
+  const url = SB_URL + '/rest/v1/stella_koumassi_lots?select=' + fields + '&code=in.(00,02,03)&order=id.asc';
   const r = await fetch(url, {
     headers: {'apikey': SB_KEY, 'Accept':'application/json'},
     cache:'no-store'
   });
   if (!r.ok) throw new Error('lots HTTP '+r.status);
   const rows = await r.json();
-  if (!Array.isArray(rows) || rows.length !== 674) {
-    throw new Error('base Koumassi incomplète : '+(Array.isArray(rows)?rows.length:'?')+'/674');
+  if (!Array.isArray(rows) || rows.length !== 787) {
+    throw new Error('base Koumassi incomplète : '+(Array.isArray(rows)?rows.length:'?')+'/787');
   }
   const n00=rows.filter(r=>r.code==='00').length;
+  const n02=rows.filter(r=>r.code==='02').length;
   const n03=rows.filter(r=>r.code==='03').length;
-  if (n00!==279 || n03!==395) throw new Error('comptage quartiers incorrect : 00='+n00+', 03='+n03);
+  if (n00!==279 || n02!==113 || n03!==395) throw new Error('comptage quartiers incorrect : 00='+n00+', 02='+n02+', 03='+n03);
   return rows;
 }
 function clearLotLayer() {
@@ -256,7 +258,7 @@ async function init() {
     $('btnPlace').onclick=armPin;
     $('btnArrive').onclick=arrived;
     $('btnSaved').onclick=()=>{const r=savedLots[$('saved').value]; if(r)showLot(r);};
-    status('STABLE prête · '+tours.features.length+' contours · '+lots.length+' lots intégrés sur 2 quartiers.');
+    status('STABLE prête · '+tours.features.length+' contours · '+lots.length+' lots intégrés sur 3 quartiers.');
   } catch(e) {
     console.error(e);
     status('Erreur de démarrage : '+e.message);

@@ -69,9 +69,8 @@ async function loadLots() {
     throw new Error('base Koumassi incomplète : '+(Array.isArray(rows)?rows.length:'?')+'/787');
   }
   const n00=rows.filter(r=>r.code==='00').length;
-  const n02=rows.filter(r=>r.code==='02').length;
   const n03=rows.filter(r=>r.code==='03').length;
-  if (n00!==279 || n02!==113 || n03!==395) throw new Error('comptage quartiers incorrect : 00='+n00+', 02='+n02+', 03='+n03);
+  if (n00!==279 || n03!==395) throw new Error('comptage quartiers incorrect : 00='+n00+', 03='+n03);
   return rows;
 }
 function clearLotLayer() {

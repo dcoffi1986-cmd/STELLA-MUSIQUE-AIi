@@ -1,6 +1,7 @@
 """Dedicated Audiveris worker. Protect /recognize with OMR_TOKEN."""
 import os
 import logging
+import time
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,12 +34,18 @@ async def recognize(file: UploadFile = File(...), x_omr_token: str = Header(defa
         pdf.write_bytes(data)
         out = root / "out"
         out.mkdir()
+        started = time.monotonic()
         try:
             proc = subprocess.run([str(BIN), "-batch", "-export", "-output", str(out), "--", str(pdf)],
                                   cwd=root, capture_output=True, text=True, timeout=150,
                                   env={**os.environ, "JAVA_TOOL_OPTIONS": "-Xmx384m -Djava.awt.headless=true"})
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            tail = (exc.stderr or b"")
+            if isinstance(tail, bytes):
+                tail = tail.decode("utf-8", errors="replace")
+            logging.error("Audiveris timeout after %.1fs stderr_tail=%s", time.monotonic() - started, tail[-1800:])
             raise HTTPException(504, "Délai de reconnaissance dépassé")
+        logging.info("Audiveris finished in %.1fs exit=%s", time.monotonic() - started, proc.returncode)
         if proc.returncode:
             logging.error("Audiveris failed exit=%s stderr=%s stdout=%s", proc.returncode, proc.stderr[-3000:], proc.stdout[-1000:])
             raise HTTPException(422, "La reconnaissance de la partition a échoué")

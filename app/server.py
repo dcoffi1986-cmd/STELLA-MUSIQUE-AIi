@@ -58,7 +58,18 @@ async def analyze(file: UploadFile = File(...)):
     if len(data) > MAX_SIZE:
         raise HTTPException(413, "Taille maximale : 10 Mo")
     if suffix == ".pdf":
+        if audiveris_available():
+            try:
+                output, ext = recognize_pdf(data)
+                return parse_musicxml(output, ext, source="pdf")
+            except (RuntimeError, HTTPException):
+                result = inspect_pdf(data)
+                result["warning"] = "PDF importé, mais la transcription automatique a échoué. Vérifiez la netteté de la partition."
+                return result
         return inspect_pdf(data)
+    return parse_musicxml(data, suffix)
+
+def parse_musicxml(data, suffix, source="musicxml"):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / ("score" + suffix)
         path.write_bytes(data)
@@ -71,7 +82,7 @@ async def analyze(file: UploadFile = File(...)):
                     pitches = [] if isinstance(el, note.Rest) else ([p.midi for p in el.pitches] if isinstance(el, chord.Chord) else [el.pitch.midi])
                     events.append({"offset": float(el.getOffsetInHierarchy(part)), "duration": float(el.quarterLength), "pitches": pitches, "lyric": getattr(el, "lyric", "") or ""})
                 parts.append({"name": part.partName or f"Partie {i+1}", "events": events})
-            return {"format": "musicxml", "parts": parts, "warning": "Vérifier les voix et les notes avant apprentissage. Synthèse chantée non disponible."}
+            return {"format": "musicxml", "source_format": source, "parts": parts, "warning": "Notes à vérifier avant apprentissage. Son synthétique sans paroles."}
         except Exception:
             raise HTTPException(422, "Fichier MusicXML illisible")
 

@@ -84,7 +84,20 @@ async def analyze(file: UploadFile = File(...)):
     if len(data) > MAX_SIZE:
         raise HTTPException(413, "Taille maximale : 10 Mo")
     if suffix == ".pdf":
-        remote = remote_omr(data)
+        omr_data = data
+        try:
+            with fitz.open(stream=data, filetype="pdf") as doc:
+                if len(doc) > 1 and not doc.needs_pass:
+                    # Exclure la couverture descriptive, conserver les pages de notation.
+                    first_text = doc[0].get_text().lower()
+                    second_text = doc[1].get_text().lower()
+                    if ("à propos" in first_text or "about the artist" in first_text or "gnéhoua" in first_text) and ("voici" in second_text or len(second_text) < len(first_text)):
+                        with fitz.open() as trimmed:
+                            trimmed.insert_pdf(doc, from_page=1, to_page=len(doc)-1)
+                            omr_data = trimmed.tobytes(garbage=3, deflate=True)
+        except Exception:
+            pass
+        remote = remote_omr(omr_data)
         if remote:
             try:
                 return parse_musicxml(remote[0], remote[1], source="pdf")

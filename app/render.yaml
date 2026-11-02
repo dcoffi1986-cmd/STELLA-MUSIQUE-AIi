@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: stella-music-ai
+    runtime: docker
+    dockerfilePath: ./app/Dockerfile
+    dockerContext: ./app
+    plan: starter
+    healthCheckPath: /api/status

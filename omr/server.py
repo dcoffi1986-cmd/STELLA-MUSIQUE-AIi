@@ -1,5 +1,6 @@
 """Dedicated Audiveris worker. Protect /recognize with OMR_TOKEN."""
 import os
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -39,9 +40,11 @@ async def recognize(file: UploadFile = File(...), x_omr_token: str = Header(defa
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "Délai de reconnaissance dépassé")
         if proc.returncode:
+            logging.error("Audiveris failed exit=%s stderr=%s stdout=%s", proc.returncode, proc.stderr[-3000:], proc.stdout[-1000:])
             raise HTTPException(422, "La reconnaissance de la partition a échoué")
         matches = sorted(out.rglob("*.mxl")) + sorted(out.rglob("*.musicxml"))
         if not matches:
+            logging.error("Audiveris produced no MusicXML: stderr=%s stdout=%s", proc.stderr[-3000:], proc.stdout[-1000:])
             raise HTTPException(422, "Aucune partition MusicXML produite")
         result = matches[0]
         if result.stat().st_size > 15 * 1024 * 1024:

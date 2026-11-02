@@ -16,6 +16,23 @@ MAX_PDF = 10 * 1024 * 1024
 def health():
     return {"audiveris_installed": BIN.is_file() and os.access(BIN, os.X_OK)}
 
+@app.get("/diagnostic")
+def diagnostic(x_omr_token: str = Header(default="")):
+    token = os.environ.get("OMR_TOKEN")
+    if not token or x_omr_token != token:
+        raise HTTPException(401, "Accès non autorisé")
+    if not BIN.is_file():
+        return {"installed": False, "cli_starts": False}
+    started = time.monotonic()
+    try:
+        p = subprocess.run([str(BIN), "-help"], capture_output=True, text=True,
+                           timeout=20, env={**os.environ, "JAVA_TOOL_OPTIONS": "-Xmx384m -Djava.awt.headless=true"})
+        return {"installed": True, "cli_starts": p.returncode == 0,
+                "exit_code": p.returncode, "duration_seconds": round(time.monotonic()-started, 2),
+                "output_tail": (p.stdout + p.stderr)[-1200:]}
+    except subprocess.TimeoutExpired:
+        return {"installed": True, "cli_starts": False, "timeout_seconds": 20}
+
 @app.post("/recognize")
 async def recognize(file: UploadFile = File(...), x_omr_token: str = Header(default="")):
     token = os.environ.get("OMR_TOKEN")

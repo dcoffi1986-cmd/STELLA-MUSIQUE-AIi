@@ -71,7 +71,20 @@ async def recognize(file: UploadFile = File(...), x_omr_token: str = Header(defa
         out.mkdir()
         started = time.monotonic()
         try:
-            proc = subprocess.run([str(BIN), "-batch", "-export", "-output", str(out), "--", str(pdf)],
+            raster = subprocess.run(
+                ["pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-r", "250",
+                 "-gray", "-png", str(pdf), str(root / "score")],
+                cwd=root, capture_output=True, text=True, timeout=25)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "Conversion PDF trop longue")
+        image_file = root / "score.png"
+        if raster.returncode != 0 or not image_file.is_file():
+            logging.error("PDF rasterization failed: %s", raster.stderr[-1000:])
+            raise HTTPException(422, "Impossible de lire la page PDF")
+        logging.info("OMR rasterized first page in %.1fs bytes=%d",
+                     time.monotonic()-started, image_file.stat().st_size)
+        try:
+            proc = subprocess.run([str(BIN), "-batch", "-export", "-output", str(out), "--", str(image_file)],
                                   cwd=root, capture_output=True, text=True, timeout=150,
                                   env={**os.environ, "JAVA_TOOL_OPTIONS": "-Xmx384m -Djava.awt.headless=true"})
         except subprocess.TimeoutExpired as exc:

@@ -2,6 +2,7 @@
 import os
 import logging
 import time
+import threading
 import subprocess
 import tempfile
 from pathlib import Path
@@ -11,6 +12,23 @@ from fastapi.responses import Response
 app = FastAPI(title="STELLA OMR")
 BIN = Path(os.getenv("AUDIVERIS_BIN", "/opt/audiveris/bin/Audiveris"))
 MAX_PDF = 10 * 1024 * 1024
+
+def run_startup_diagnostic():
+    """Run a one-time CLI startup test in background, without uploading a PDF."""
+    started = time.monotonic()
+    try:
+        p = subprocess.run([str(BIN), "-help"], capture_output=True, text=True,
+                           timeout=20, env={**os.environ, "JAVA_TOOL_OPTIONS": "-Xmx384m -Djava.awt.headless=true"})
+        logging.warning("OMR_CLI_DIAGNOSTIC exit=%s duration=%.2fs output=%s",
+                        p.returncode, time.monotonic()-started, (p.stdout+p.stderr)[-1200:])
+    except subprocess.TimeoutExpired:
+        logging.error("OMR_CLI_DIAGNOSTIC timeout after 20s")
+    except Exception as exc:
+        logging.error("OMR_CLI_DIAGNOSTIC failed: %s", type(exc).__name__)
+
+@app.on_event("startup")
+def startup_diagnostic():
+    threading.Thread(target=run_startup_diagnostic, daemon=True).start()
 
 @app.get("/health")
 def health():

@@ -5,6 +5,9 @@ from music21 import converter, note, chord
 import fitz
 import tempfile
 import base64
+import os
+import urllib.request
+import urllib.error
 from omr_experimental import detect_staves_and_candidates
 from audiveris_adapter import available as audiveris_available, recognize_pdf
 
@@ -20,6 +23,29 @@ def home():
 @app.get("/api/status")
 def status():
     return {"musicxml_ready": True, "pdf_import_ready": True, "pdf_omr_ready": "audiveris" if audiveris_available() else "experimental", "audiveris_installed": audiveris_available(), "vocal_synthesis_ready": False}
+
+def remote_omr(data):
+    url = os.environ.get("OMR_SERVICE_URL", "").rstrip("/")
+    token = os.environ.get("OMR_TOKEN", "")
+    if not url or not token or not url.startswith("https://"):
+        return None
+    boundary = "stella-omr-pdf-boundary"
+    body = (("--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="partition.pdf"\r\nContent-Type: application/pdf\r\n\r\n').encode()
+            + data + ("\r\n--" + boundary + "--\r\n").encode())
+    req = urllib.request.Request(url + "/recognize", body, headers={
+        "Content-Type": "multipart/form-data; boundary=" + boundary,
+        "X-OMR-Token": token}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=160) as resp:
+            output = resp.read(15 * 1024 * 1024 + 1)
+            if len(output) > 15 * 1024 * 1024:
+                raise RuntimeError("Réponse OMR trop volumineuse")
+            ext = resp.headers.get("X-Music-Extension", ".mxl")
+            if ext not in (".mxl", ".musicxml", ".xml"):
+                raise RuntimeError("Format OMR non reconnu")
+            return output, ext
+    except (urllib.error.URLError, TimeoutError, RuntimeError):
+        return None
 
 def inspect_pdf(data):
     if not data.startswith(b"%PDF-"):
@@ -58,6 +84,12 @@ async def analyze(file: UploadFile = File(...)):
     if len(data) > MAX_SIZE:
         raise HTTPException(413, "Taille maximale : 10 Mo")
     if suffix == ".pdf":
+        remote = remote_omr(data)
+        if remote:
+            try:
+                return parse_musicxml(remote[0], remote[1], source="pdf")
+            except HTTPException:
+                pass
         if audiveris_available():
             try:
                 output, ext = recognize_pdf(data)

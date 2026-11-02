@@ -5,6 +5,7 @@ from music21 import converter, note, chord
 import fitz
 import tempfile
 import base64
+from omr_experimental import detect_staves_and_candidates
 
 app = FastAPI(title="STELLA MUSIC AI")
 ROOT = Path(__file__).parent
@@ -17,7 +18,7 @@ def home():
 
 @app.get("/api/status")
 def status():
-    return {"musicxml_ready": True, "pdf_import_ready": True, "pdf_omr_ready": False, "vocal_synthesis_ready": False}
+    return {"musicxml_ready": True, "pdf_import_ready": True, "pdf_omr_ready": "experimental", "vocal_synthesis_ready": False}
 
 def inspect_pdf(data):
     if not data.startswith(b"%PDF-"):
@@ -29,12 +30,19 @@ def inspect_pdf(data):
             if not 1 <= len(doc) <= MAX_PAGES:
                 raise HTTPException(422, f"Le PDF doit contenir entre 1 et {MAX_PAGES} pages.")
             pages = []
+            recognition = []
             for i, page in enumerate(doc):
                 # 96 DPI pour un aperçu léger sur mobile. Aucun document conservé.
                 pix = page.get_pixmap(matrix=fitz.Matrix(1.33, 1.33), alpha=False)
+                if i < 4:
+                    try:
+                        result = detect_staves_and_candidates(pix)
+                        recognition.append({'page': i+1, **result})
+                    except Exception:
+                        recognition.append({'page': i+1, 'staves': [], 'warning': 'Détection impossible sur cette page.'})
                 preview = base64.b64encode(pix.tobytes("jpeg", jpg_quality=65)).decode("ascii")
                 pages.append({"number": i + 1, "width": round(page.rect.width), "height": round(page.rect.height), "preview": "data:image/jpeg;base64," + preview})
-            return {"format": "pdf", "page_count": len(pages), "pages": pages, "parts": [], "omr_completed": False, "warning": "PDF importé et pages préparées. La reconnaissance des notes et des voix n'est pas encore disponible."}
+            return {"format": "pdf", "page_count": len(pages), "pages": pages, "parts": [], "recognition": recognition, "omr_completed": False, "warning": "PDF importé. Détection expérimentale des positions de notes, à vérifier. Les voix chantées ne sont pas disponibles."}
     except HTTPException:
         raise
     except Exception:

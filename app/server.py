@@ -1,11 +1,12 @@
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from music21 import converter, note, chord
 import fitz
 import tempfile
 import base64
 from omr_experimental import detect_staves_and_candidates
+from audiveris_adapter import available as audiveris_available, recognize_pdf
 
 app = FastAPI(title="STELLA MUSIC AI")
 ROOT = Path(__file__).parent
@@ -18,7 +19,7 @@ def home():
 
 @app.get("/api/status")
 def status():
-    return {"musicxml_ready": True, "pdf_import_ready": True, "pdf_omr_ready": "experimental", "vocal_synthesis_ready": False}
+    return {"musicxml_ready": True, "pdf_import_ready": True, "pdf_omr_ready": "audiveris" if audiveris_available() else "experimental", "audiveris_installed": audiveris_available(), "vocal_synthesis_ready": False}
 
 def inspect_pdf(data):
     if not data.startswith(b"%PDF-"):
@@ -73,3 +74,21 @@ async def analyze(file: UploadFile = File(...)):
             return {"format": "musicxml", "parts": parts, "warning": "Vérifier les voix et les notes avant apprentissage. Synthèse chantée non disponible."}
         except Exception:
             raise HTTPException(422, "Fichier MusicXML illisible")
+
+@app.post("/api/recognize-musicxml")
+async def recognize_musicxml(file: UploadFile = File(...)):
+    if not audiveris_available():
+        raise HTTPException(503, "Le moteur Audiveris nécessite un serveur OMR dédié ; il n'est pas encore installé.")
+    if Path(file.filename or "").suffix.lower() != ".pdf":
+        raise HTTPException(422, "Choisissez une partition PDF.")
+    data = await file.read(MAX_SIZE + 1)
+    if len(data) > MAX_SIZE:
+        raise HTTPException(413, "Taille maximale : 10 Mo")
+    if not data.startswith(b"%PDF-"):
+        raise HTTPException(422, "PDF invalide.")
+    try:
+        output, ext = recognize_pdf(data)
+        return Response(content=output, media_type="application/octet-stream",
+            headers={"Content-Disposition": 'attachment; filename="partition-reconnue' + ext + '"'})
+    except RuntimeError as err:
+        raise HTTPException(422, str(err))
